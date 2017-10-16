@@ -23,7 +23,7 @@ main = do
     putStr "\n"
 
 printN
-    :: Time
+    :: Duration
     -> ConcurrentT chanState () IO ()
 printN time = do
     sleep time

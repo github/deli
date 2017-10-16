@@ -4,7 +4,9 @@
 module Control.Monad.Concurrent
     ( Channel
     , Time
+    , Duration
     , ConcurrentT
+    , addDuration
     , fork
     , sleep
     , yield
@@ -35,6 +37,16 @@ data ChanAndWaiters chanState r m = ChanAndWaiters
 
 newtype Time = Time DiffTime
     deriving (Show, Eq, Ord, Num)
+
+newtype Duration = Duration DiffTime
+    deriving (Show, Eq, Ord, Num)
+
+addDuration
+    :: Time
+    -> Duration
+    -> Time
+addDuration (Time t) (Duration d) =
+    Time (t + d)
 
 data PriorityCoroutine chanState r m = PriorityCoroutine
     { routine :: IConcurrentT chanState r m ()
@@ -115,30 +127,28 @@ dequeue = do
             updateNow priority
             nextCoroutine
 
-queue
+ischeduleDuration
     :: Monad m
-    => Time
+    => Duration
     -> IConcurrentT chanState r m ()
     -> IConcurrentT chanState r m ()
-queue time routine = do
-    currentRoutines <- getCCs
+ischeduleDuration duration routine = do
     currentNow <- inow
-    let newRoutines = insertBehind (PriorityCoroutine routine (time + currentNow)) currentRoutines
-    putCCs newRoutines
+    ischedule (addDuration currentNow duration) routine
 
 sleep
     :: Monad m
-    => Time
+    => Duration
     -> ConcurrentT chanState r m ()
 sleep = ConcurrentT . isleep
 
 isleep
     :: Monad m
-    => Time
+    => Duration
     -> IConcurrentT chanState r m ()
-isleep time =
+isleep duration =
     callCC $ \k -> do
-        queue time (k ())
+        ischeduleDuration duration (k ())
         dequeue
 
 yield
@@ -153,6 +163,30 @@ iyield =
     -- rather than implementing a separate queue/seq for yield'ers, we actually
     -- do want to advance our clock as we yield, simulating CPU cycles
     isleep microsecond
+
+schedule
+    :: Monad m
+    => Time
+    -> ConcurrentT chanState r m ()
+    -> ConcurrentT chanState r m ()
+schedule time (ConcurrentT f) =
+    ConcurrentT (ischedule time f)
+
+ischedule
+    :: Monad m
+    => Time
+    -> IConcurrentT chanState r m ()
+    -> IConcurrentT chanState r m ()
+ischedule time routine = do
+    currentRoutines <- getCCs
+    currentNow <- inow
+    -- to prevent time from moving backward by scheduling something in the
+    -- past, we schedule it to the `max' of the current time, or the schedule
+    -- time. Effectively this immediately schedules the process if it were
+    -- to otherwise have been scheduled for the past.
+    let scheduleTime = max time currentNow
+        newRoutines = insertBehind (PriorityCoroutine routine scheduleTime) currentRoutines
+    putCCs newRoutines
 
 now
     :: Monad m
@@ -177,7 +211,7 @@ ifork
     -> IConcurrentT chanState r m ()
 ifork routine =
     callCC $ \k -> do
-        queue 0 (k ())
+        ischeduleDuration 0 (k ())
         routine
         dequeue
 
@@ -310,5 +344,5 @@ runIConcurrentT
 runIConcurrentT routine =
     flip evalStateT freshState $ flip runContT return $ runIConcurrentT' (routine <* dequeue)
 
-microsecond :: Time
-microsecond = Time (picosecondsToDiffTime 1000000)
+microsecond :: Duration
+microsecond = Duration (picosecondsToDiffTime 1000000)
