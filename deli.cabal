@@ -23,6 +23,7 @@ library
                      , pqueue
                      , tf-random
                      , time
+                     , transformers
   default-language:    Haskell2010
 
 executable deli-exe

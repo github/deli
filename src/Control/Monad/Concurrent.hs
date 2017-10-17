@@ -19,18 +19,26 @@ module Control.Monad.Concurrent
 
 import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
 import Data.PQueue.Min
-import Control.Lens (at, ix, makeLenses, use, (^.), (^?), (.=), (+=), (%=), (?~))
+import Control.Lens (at, ix, makeLenses, to, use, (^.), (^?), (.=), (+=), (%=), (?~))
 import Control.Monad.Cont
 import Control.Monad.State
+import Control.Monad.Trans.Cont (resetT, shiftT)
 import Data.Sequence
 import Data.Map.Strict
 import Data.Maybe
 
-newtype Channel a = Channel Integer
+-- ** delimited continuations **
+-- shift = escape
+-- reset = capture
+
+data Channel a = Channel
+    { _chanId :: Integer
+    , _chanSize :: Maybe Int
+    }
     deriving (Eq, Ord)
 
 data ChanAndWaiters chanState r m = ChanAndWaiters
-    { _contents :: Maybe chanState
+    { _contents :: Seq chanState
     , _readers :: Seq (IConcurrentT chanState r m ())
     , _writers :: Seq (IConcurrentT chanState r m ())
     }
@@ -217,24 +225,24 @@ ifork routine =
 
 newChannel
     :: Monad m
-    => Integer
+    => Maybe Int
     -> ConcurrentT chanState r m (Channel chanState)
--- ignoring queue size for now..., it's just always 1 (one)
 newChannel = ConcurrentT . inewChannel
 
 inewChannel
     :: Monad m
-    => Integer
+    => Maybe Int
     -> IConcurrentT chanState r m (Channel chanState)
 -- ignoring queue size for now..., it's just always 1 (one)
-inewChannel _queueSize = do
+inewChannel mChanSize = do
     -- grab the next channel identifier and then
     -- immediately increment it for the next use
     chanIdent <- use nextChannelIdent
     nextChannelIdent += 1
 
-    let chan = Channel chanIdent
-        chanAndWaiters = ChanAndWaiters Nothing Data.Sequence.empty Data.Sequence.empty
+    let chan = Channel chanIdent mChanSize
+        emptySeq = Data.Sequence.empty
+        chanAndWaiters = ChanAndWaiters emptySeq emptySeq emptySeq
     channels %= (at chan ?~ chanAndWaiters)
     return chan
 
@@ -242,7 +250,7 @@ writeChannel
     :: Monad m
     => Channel chanState
     -> chanState
-    -> ConcurrentT chanState r m ()
+    -> ConcurrentT chanState () m ()
 writeChannel chan item =
     ConcurrentT (iwriteChannel chan item)
 
@@ -250,35 +258,41 @@ iwriteChannel
     :: Monad m
     => Channel chanState
     -> chanState
-    -> IConcurrentT chanState r m ()
-iwriteChannel chan item = do
+    -> IConcurrentT chanState () m ()
+iwriteChannel chan@(Channel ident mMaxSize) item = do
     chanMap <- use channels
-    let chanContents = join $ chanMap ^? (ix chan . contents)
+    let chanContents = chanMap ^? (ix chan . contents)
+        chanCurrentSize = maybe 0 Data.Sequence.length chanContents
 
     -- when there's already an element, we block and wait our turn to write
     -- once the queue is empty/writable
-    when (isJust chanContents) $ callCC $ \k -> do
-        -- this is a bit dense...:
-        -- we add `k ()' to the list of writers, so that
-        -- once someone else finds us at the top of the writing queue,
-        -- we get rescheduled
-        channels . ix chan . writers %= (|> k ())
-        dequeue
+    case mMaxSize of
+        Just maxSize | chanCurrentSize >= maxSize ->
+            IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
+                -- this is a bit dense...:
+                -- we add `k ()' to the list of writers, so that
+                -- once someone else finds us at the top of the writing queue,
+                -- we get rescheduled
+                channels . ix chan . writers %= (|> IConcurrentT (lift (k ())))
+                dequeue
+        _ ->
+            return ()
+
 
     -- now we've waited, if needed
     -- write the value, and then notify any readers
     -- our state may have changed, so get it again
 
     -- write the value to the queue
-    channels . ix chan . contents .= Just item
+    channels . ix chan . contents %= (|> item)
 
     chanMap <- use channels
     let readerView = fromMaybe EmptyL ((viewl . _readers) <$> Data.Map.Strict.lookup chan chanMap)
     case readerView of
-        -- there are no readers, so just write the value
+        -- there are no readers
         EmptyL ->
             return ()
-        -- there is a reader, so write the value, call the reader
+        -- there is a reader, call the reader
         nextReader :< newReaders -> do
             channels . ix chan . readers .= newReaders
             nextReader
@@ -287,30 +301,30 @@ iwriteChannel chan item = do
 readChannel
     :: Monad m
     => Channel chanState
-    -> ConcurrentT chanState r m chanState
+    -> ConcurrentT chanState () m chanState
 readChannel = ConcurrentT . ireadChannel
 
 ireadChannel
     :: Monad m
     => Channel chanState
-    -> IConcurrentT chanState r m chanState
+    -> IConcurrentT chanState () m chanState
 ireadChannel chan = do
     chanMap <- use channels
-    let mChanContents = join $ chanMap ^? (ix chan . contents)
+    let mChanContents = fromMaybe EmptyL $ chanMap ^? (ix chan . contents . to viewl)
 
     case mChanContents of
-        Nothing -> do
+        EmptyL -> do
             -- nothing to read, so we add ourselves to the queue
-            callCC $ \k -> do
-                channels . ix chan . readers %= (|> k ())
+            IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
+                channels . ix chan . readers %= (|> IConcurrentT (lift (k ())))
                 dequeue
             -- we can actually just recur here to read the value, since now
             -- that we're running again, the queue will have a value for us to
             -- read
             ireadChannel chan
-        Just val -> do
-            -- clear the value
-            channels . ix chan . contents .= Nothing
+        val :< newSeq -> do
+            -- write the new seq
+            channels . ix chan . contents .= newSeq
 
             -- see if there are any writers
             chanMap <- use channels
@@ -320,6 +334,7 @@ ireadChannel chan = do
                     return val
                 nextWriter :< newWriters -> do
                     channels . ix chan . writers .= newWriters
+                    nextWriter
                     return val
 
 exhaust
@@ -342,7 +357,7 @@ runIConcurrentT
     => IConcurrentT chanState r m r
     -> m r
 runIConcurrentT routine =
-    flip evalStateT freshState $ flip runContT return $ runIConcurrentT' (routine <* dequeue)
+    flip evalStateT freshState $ runContT (resetT $ runIConcurrentT' (routine <* dequeue)) return
 
 microsecond :: Duration
 microsecond = Duration (picosecondsToDiffTime 1000000)

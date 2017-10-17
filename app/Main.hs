@@ -1,7 +1,7 @@
 module Main where
 
 import Control.Monad.Concurrent
-import Control.Monad (replicateM_)
+import Control.Monad (replicateM_, when)
 import Control.Monad.Trans (liftIO)
 
 main :: IO ()
@@ -22,6 +22,18 @@ main = do
     example4
     putStr "\n"
 
+    putStrLn "example5"
+    example5
+    putStr "\n"
+
+    putStrLn "example6:"
+    example6
+    putStr "\n"
+
+    putStrLn "example7:"
+    example7
+    putStr "\n"
+
 printN
     :: Duration
     -> ConcurrentT chanState () IO ()
@@ -31,8 +43,8 @@ printN time = do
 
 example :: IO ()
 example = runConcurrentT $ do
-    fork $ replicateM_ 1 (printN 3)
-    fork $ replicateM_ 1 (printN 4)
+    fork $ printN 3
+    fork $ printN 4
     replicateM_ 5 (printN 1)
     printN 10
 
@@ -47,7 +59,7 @@ example2 = runConcurrentT $ do
 
 example3 :: IO ()
 example3 = runConcurrentT $ do
-    chan <- newChannel 1
+    chan <- newChannel (Just 1)
     liftIO (putStrLn "created a channel")
     fork $ do
         liftIO (putStrLn "in the forked process")
@@ -58,8 +70,8 @@ example3 = runConcurrentT $ do
 
 example4 :: IO ()
 example4 = runConcurrentT $ do
-    chanA <- newChannel 1
-    chanB <- newChannel 1
+    chanA <- newChannel (Just 1)
+    chanB <- newChannel (Just 1)
     fork $ do
         val <- readChannel chanA
         writeChannel chanB val
@@ -67,3 +79,25 @@ example4 = runConcurrentT $ do
     writeChannel chanA True
     val <- readChannel chanB
     liftIO (print val)
+
+example5 :: IO ()
+example5 = runConcurrentT $ do
+    now >>= liftIO . print
+    sleep 2
+    when True $ sleep 2
+    now >>= liftIO . print
+
+example6 :: IO ()
+example6 = runConcurrentT $ do
+    chanA <- newChannel (Just 1)
+    writeChannel chanA (1 :: Int)
+    writeChannel chanA (2 :: Int)
+
+example7 :: IO ()
+example7 = runConcurrentT $ do
+    chanA <- newChannel Nothing
+    writeChannel chanA (1 :: Int)
+    writeChannel chanA (2 :: Int)
+
+    readChannel chanA >>= liftIO . print
+    readChannel chanA >>= liftIO . print
