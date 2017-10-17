@@ -9,13 +9,13 @@ import System.Random
 main :: IO ()
 main = do
     gen <- newStdGen
-    let jobs = [Job 0 10, Job 1 10, Job 2 10, Job 3 10]
+    let jobs = [Job 0 10, Job 1 10, Job 2 10, Job 3 10, Job 10 10]
         action queue = do
                     fork $ forever $ do
-                            job <- Deli (Concurrent.readChannel queue)
+                            job <- readChannel queue
                             runJob job
                     forever $ do
-                            job <- Deli (Concurrent.readChannel queue)
+                            job <- readChannel queue
                             runJob job
         res = simulate gen jobs action
     print res

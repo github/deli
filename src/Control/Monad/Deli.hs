@@ -2,12 +2,18 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Control.Monad.Deli
-    -- Only exporting Deli constructor for now since
-    -- we need to re-export the Concurrent API in terms
-    -- of Deli
-    ( Deli(..)
+    ( Deli
     , Job(..)
+    -- re-exported from Control.Monad.Concurrent
+    , Concurrent.Time
+    , Concurrent.Duration
+    , Concurrent.Channel
     , fork
+    , sleep
+    , now
+    , newChannel
+    , writeChannel
+    , readChannel
     , runDeli
     , runJob
     , simulate
@@ -41,11 +47,45 @@ instance MonadRandom (Deli chanState) where
 
     getRandoms = getRandoms >>= Deli . pure
 
+------------------------------------------------------------------------------
+-- ## Wrappers around the Control.Monad.Concurrent API
+------------------------------------------------------------------------------
+
 fork
     :: Deli chanState ()
     -> Deli chanState ()
 fork (Deli conc) =
     Deli $ Concurrent.fork conc
+
+sleep
+    :: Concurrent.Duration
+    -> Deli chanState ()
+sleep = Deli . Concurrent.sleep
+
+now
+    :: Deli chanState Concurrent.Time
+now = Deli Concurrent.now
+
+newChannel
+    :: Maybe Int
+    -> Deli chanState (Concurrent.Channel chanState)
+newChannel = Deli . Concurrent.newChannel
+
+writeChannel
+    :: Concurrent.Channel chanState
+    -> chanState
+    -> Deli chanState ()
+writeChannel chan item =
+    Deli (Concurrent.writeChannel chan item)
+
+readChannel
+    :: Concurrent.Channel chanState
+    -> Deli chanState chanState
+readChannel = Deli . Concurrent.readChannel
+
+------------------------------------------------------------------------------
+--
+------------------------------------------------------------------------------
 
 runDeli
     :: StdGen
