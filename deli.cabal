@@ -16,12 +16,14 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Control.Monad.Concurrent
+                     , Control.Monad.Deli
   build-depends:       base >= 4.7 && < 5
                      , containers
                      , lens
+                     , MonadRandom
                      , mtl
                      , pqueue
-                     , tf-random
+                     , random
                      , time
                      , transformers
   default-language:    Haskell2010

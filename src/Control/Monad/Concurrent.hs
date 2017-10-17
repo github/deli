@@ -7,9 +7,11 @@ module Control.Monad.Concurrent
     , Duration
     , ConcurrentT
     , addDuration
+    , subtractTime
     , fork
     , sleep
     , yield
+    , schedule
     , now
     , newChannel
     , writeChannel
@@ -56,6 +58,13 @@ addDuration
 addDuration (Time t) (Duration d) =
     Time (t + d)
 
+subtractTime
+    :: Time
+    -> Time
+    -> Duration
+subtractTime (Time end) (Time start) =
+    Duration (end - start)
+
 data PriorityCoroutine chanState r m = PriorityCoroutine
     { routine :: IConcurrentT chanState r m ()
     , priority :: Time
@@ -88,6 +97,9 @@ newtype ConcurrentT chanState r m a =
     ConcurrentT
         { runConcurrentT' :: IConcurrentT chanState r m a
         } deriving (Functor, Applicative, Monad, MonadCont, MonadIO)
+
+instance MonadTrans (ConcurrentT chanState r) where
+    lift = ConcurrentT . IConcurrentT . lift . lift
 
 -- For some reason I had to put these together underneath the definition
 -- of `IConcurrentT'
