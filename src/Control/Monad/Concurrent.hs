@@ -37,7 +37,7 @@ data Channel a = Channel
     { _chanId :: Integer
     , _chanSize :: Maybe Int
     }
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
 data ChanAndWaiters chanState r m = ChanAndWaiters
     { _contents :: Seq chanState
@@ -159,26 +159,29 @@ ischeduleDuration duration routine = do
 sleep
     :: Monad m
     => Duration
-    -> ConcurrentT chanState r m ()
+    -> ConcurrentT r () m ()
 sleep = ConcurrentT . isleep
 
 isleep
     :: Monad m
     => Duration
-    -> IConcurrentT chanState r m ()
+    -> IConcurrentT r () m ()
 isleep duration =
-    callCC $ \k -> do
-        ischeduleDuration duration (k ())
+--    callCC $ \k -> do
+--        ischeduleDuration duration (k ())
+--        dequeue
+    IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
+        ischeduleDuration duration (IConcurrentT (lift (k ())))
         dequeue
 
 yield
     :: Monad m
-    => ConcurrentT chanState r m ()
+    => ConcurrentT chanState () m ()
 yield = ConcurrentT iyield
 
 iyield
     :: Monad m
-    => IConcurrentT chanState r m ()
+    => IConcurrentT chanState () m ()
 iyield =
     -- rather than implementing a separate queue/seq for yield'ers, we actually
     -- do want to advance our clock as we yield, simulating CPU cycles
@@ -303,7 +306,7 @@ iwriteChannel chan@(Channel ident mMaxSize) item = do
     case readerView of
         -- there are no readers
         EmptyL ->
-            return ()
+            dequeue
         -- there is a reader, call the reader
         nextReader :< newReaders -> do
             channels . ix chan . readers .= newReaders
@@ -348,14 +351,6 @@ ireadChannel chan = do
                     channels . ix chan . writers .= newWriters
                     nextWriter
                     return val
-
-exhaust
-    :: Monad m
-    => IConcurrentT chanState r m ()
-exhaust = do
-    exhausted <- Data.PQueue.Min.null <$> getCCs
-    unless exhausted $
-        isleep 1000 >> exhaust
 
 runConcurrentT
     :: Monad m

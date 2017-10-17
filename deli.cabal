@@ -35,6 +35,7 @@ executable deli-exe
   build-depends:       base
                      , mtl
                      , deli
+                     , random
   default-language:    Haskell2010
 
 test-suite deli-test

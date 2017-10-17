@@ -1,11 +1,27 @@
 module Main where
 
-import Control.Monad.Concurrent
-import Control.Monad (replicateM_, when)
+import qualified Control.Monad.Concurrent as Concurrent
+import Control.Monad.Deli
+import Control.Monad (replicateM_, when, forever)
 import Control.Monad.Trans (liftIO)
+import System.Random
 
 main :: IO ()
 main = do
+    gen <- newStdGen
+    let jobs = [Job 0 10, Job 1 10, Job 2 10, Job 3 10]
+        action queue = do
+                    fork $ forever $ do
+                            job <- Deli (Concurrent.readChannel queue)
+                            runJob job
+                    forever $ do
+                            job <- Deli (Concurrent.readChannel queue)
+                            runJob job
+        res = simulate gen jobs action
+    print res
+
+examples :: IO ()
+examples = do
     putStrLn "example:"
     example
     putStr "\n"
@@ -35,69 +51,69 @@ main = do
     putStr "\n"
 
 printN
-    :: Duration
-    -> ConcurrentT chanState () IO ()
+    :: Concurrent.Duration
+    -> Concurrent.ConcurrentT chanState () IO ()
 printN time = do
-    sleep time
+    Concurrent.sleep time
     liftIO (print time)
 
 example :: IO ()
-example = runConcurrentT $ do
-    fork $ printN 3
-    fork $ printN 4
+example = Concurrent.runConcurrentT $ do
+    Concurrent.fork $ printN 3
+    Concurrent.fork $ printN 4
     replicateM_ 5 (printN 1)
     printN 10
 
 example2 :: IO ()
-example2 = runConcurrentT $ do
+example2 = Concurrent.runConcurrentT $ do
     liftIO (print 5)
     liftIO (print 5)
-    sleep 2
+    Concurrent.sleep 2
     liftIO (print 4)
     liftIO (print 4)
-    fork (liftIO (print 1))
+    Concurrent.fork (liftIO (print 1))
 
 example3 :: IO ()
-example3 = runConcurrentT $ do
-    chan <- newChannel (Just 1)
+example3 = Concurrent.runConcurrentT $ do
+    chan <- Concurrent.newChannel (Just 1)
     liftIO (putStrLn "created a channel")
-    fork $ do
+    Concurrent.fork $ do
         liftIO (putStrLn "in the forked process")
-        writeChannel chan True
+        Concurrent.writeChannel chan True
     liftIO (putStrLn "right before reading")
-    val <- readChannel chan
+    val <- Concurrent.readChannel chan
     liftIO (print val)
 
 example4 :: IO ()
-example4 = runConcurrentT $ do
-    chanA <- newChannel (Just 1)
-    chanB <- newChannel (Just 1)
-    fork $ do
-        val <- readChannel chanA
-        writeChannel chanB val
+example4 = Concurrent.runConcurrentT $ do
+    chanA <- Concurrent.newChannel (Just 1)
+    chanB <- Concurrent.newChannel (Just 1)
+    Concurrent.fork $ do
+        val <- Concurrent.readChannel chanA
+        Concurrent.writeChannel chanB val
 
-    writeChannel chanA True
-    val <- readChannel chanB
+    Concurrent.writeChannel chanA True
+    val <- Concurrent.readChannel chanB
     liftIO (print val)
 
 example5 :: IO ()
-example5 = runConcurrentT $ do
-    now >>= liftIO . print
-    sleep 2
-    when True $ sleep 2
-    now >>= liftIO . print
+example5 = Concurrent.runConcurrentT $ do
+    Concurrent.now >>= liftIO . print
+    Concurrent.sleep 2
+    when True $ Concurrent.sleep 2
+    Concurrent.now >>= liftIO . print
 
 example6 :: IO ()
-example6 = runConcurrentT $ do
-    chanA <- newChannel (Just 1)
-    writeChannel chanA (1 :: Int)
-    writeChannel chanA (2 :: Int)
+example6 = Concurrent.runConcurrentT $ do
+    chanA <- Concurrent.newChannel (Just 1)
+    Concurrent.writeChannel chanA (1 :: Int)
+    Concurrent.writeChannel chanA (2 :: Int)
 
 example7 :: IO ()
-example7 = runConcurrentT $ do
-    chanA <- newChannel Nothing
-    writeChannel chanA (1 :: Int)
-    writeChannel chanA (2 :: Int)
+example7 = Concurrent.runConcurrentT $ do
+    chanA <- Concurrent.newChannel Nothing
+    Concurrent.writeChannel chanA (1 :: Int)
+    Concurrent.writeChannel chanA (2 :: Int)
 
-    readChannel chanA >>= liftIO . print
-    readChannel chanA >>= liftIO . print
+    Concurrent.readChannel chanA >>= liftIO . print
+    Concurrent.readChannel chanA >>= liftIO . print

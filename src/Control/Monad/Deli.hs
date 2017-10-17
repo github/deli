@@ -7,6 +7,7 @@ module Control.Monad.Deli
     -- of Deli
     ( Deli(..)
     , Job(..)
+    , fork
     , runDeli
     , runJob
     , simulate
@@ -39,6 +40,12 @@ instance MonadRandom (Deli chanState) where
     getRandomRs range = getRandomRs range >>= Deli . pure
 
     getRandoms = getRandoms >>= Deli . pure
+
+fork
+    :: Deli chanState ()
+    -> Deli chanState ()
+fork (Deli conc) =
+    Deli $ Concurrent.fork conc
 
 runDeli
     :: StdGen
