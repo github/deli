@@ -21,12 +21,15 @@ module Control.Monad.Deli
 
 import qualified Control.Monad.Concurrent as Concurrent
 import Control.Monad.Random.Strict
-import Control.Monad.Writer.Strict (MonadWriter, Writer, runWriter, tell)
+import Control.Monad.Writer.Strict (Writer, runWriter, tell)
 import System.Random (StdGen)
+import qualified Data.Sequence as Sequence
+--import qualified Data.DList as DList
+import qualified Data.Foldable as Foldable
 
 data Job = Job
-    { _jobStart :: Concurrent.Time
-    , _jobDuration :: Concurrent.Duration
+    { _jobStart :: !Concurrent.Time
+    , _jobDuration :: !Concurrent.Duration
     } deriving (Show, Eq, Ord)
 
 newtype FinishedJob = FinishedJob
@@ -35,7 +38,7 @@ newtype FinishedJob = FinishedJob
 
 newtype Deli chanState a =
     Deli
-        { getDeli :: Concurrent.ConcurrentT chanState () (RandT StdGen (Writer [FinishedJob])) a
+        { _getDeli :: Concurrent.ConcurrentT chanState () (RandT StdGen (Writer (Sequence.Seq FinishedJob))) a
         } deriving (Functor, Applicative, Monad)
 
 instance MonadRandom (Deli chanState) where
@@ -95,16 +98,17 @@ runDeli gen (Deli conc) =
     let randomAction = Concurrent.runConcurrentT conc
         writerAction = evalRandT randomAction gen
         (_, res) = runWriter writerAction
-    in res
+    in Foldable.toList res
 
 runJob
     :: Job
     -> Deli chanState ()
 runJob (Job start duration) = do
     Deli (Concurrent.sleep duration)
-    now <- Deli Concurrent.now
-    let finished = FinishedJob (Concurrent.subtractTime now start)
-    Deli (lift (tell [finished]))
+    nowTime <- Deli Concurrent.now
+    let finished = FinishedJob (Concurrent.subtractTime nowTime start)
+    Deli (lift (tell (Sequence.singleton finished)))
+    return ()
 
 simulate
     :: StdGen
@@ -114,8 +118,8 @@ simulate
 simulate gen jobs process =
     runDeli gen $ do
         mainChan <- Deli (Concurrent.newChannel Nothing)
-        let insertQueue job = Deli (Concurrent.schedule (_jobStart job)
-                                        (Concurrent.writeChannel mainChan job))
-        mapM_ insertQueue jobs
+        let insertQueue = Concurrent.writeChannel mainChan
+            scheduled = [(_jobStart job, insertQueue job) | job <- jobs]
+        Deli (Concurrent.lazySchedule scheduled)
         process mainChan
 

@@ -8,17 +8,19 @@ import System.Random
 
 main :: IO ()
 main = do
+    Concurrent.runConcurrentT $
+        replicateM_ 100000000 (Concurrent.sleep 1)
+
+queueExample :: IO ()
+queueExample = do
     gen <- newStdGen
-    let jobs = [Job 0 10, Job 1 10, Job 2 10, Job 3 10, Job 10 10]
-        action queue = do
-                    fork $ forever $ do
-                            job <- readChannel queue
-                            runJob job
+    let jobs = [Job x 10 | x <- [0,10..1000000 - 1]]
+        action queue =
                     forever $ do
                             job <- readChannel queue
                             runJob job
         res = simulate gen jobs action
-    print res
+    print (length res)
 
 examples :: IO ()
 examples = do

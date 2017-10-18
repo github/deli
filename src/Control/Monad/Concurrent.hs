@@ -12,6 +12,7 @@ module Control.Monad.Concurrent
     , sleep
     , yield
     , schedule
+    , lazySchedule
     , now
     , newChannel
     , writeChannel
@@ -21,9 +22,9 @@ module Control.Monad.Concurrent
 
 import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
 import Data.PQueue.Min
-import Control.Lens (at, ix, makeLenses, to, use, (^.), (^?), (.=), (+=), (%=), (?~))
+import Control.Lens (at, ix, makeLenses, to, use, (^?), (.=), (+=), (%=), (?~))
 import Control.Monad.Cont
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Cont (resetT, shiftT)
 import Data.Sequence
 import Data.Map.Strict
@@ -34,22 +35,22 @@ import Data.Maybe
 -- reset = capture
 
 data Channel a = Channel
-    { _chanId :: Integer
-    , _chanSize :: Maybe Int
+    { _chanId :: !Integer
+    , _chanSize :: !(Maybe Int)
     }
     deriving (Eq, Ord, Show)
 
 data ChanAndWaiters chanState r m = ChanAndWaiters
-    { _contents :: Seq chanState
-    , _readers :: Seq (IConcurrentT chanState r m ())
-    , _writers :: Seq (IConcurrentT chanState r m ())
+    { _contents :: !(Seq chanState)
+    , _readers :: !(Seq (IConcurrentT chanState r m ()))
+    , _writers :: !(Seq (IConcurrentT chanState r m ()))
     }
 
 newtype Time = Time DiffTime
-    deriving (Show, Eq, Ord, Num)
+    deriving (Show, Eq, Ord, Num, Enum)
 
 newtype Duration = Duration DiffTime
-    deriving (Show, Eq, Ord, Num)
+    deriving (Show, Eq, Ord, Num, Enum)
 
 addDuration
     :: Time
@@ -66,23 +67,24 @@ subtractTime (Time end) (Time start) =
     Duration (end - start)
 
 data PriorityCoroutine chanState r m = PriorityCoroutine
-    { routine :: IConcurrentT chanState r m ()
-    , priority :: Time
+    { _routine :: !(IConcurrentT chanState r m ())
+    , _priority :: !Time
     }
 
 instance Eq (PriorityCoroutine chanState r m)
-    where (==) a b =  priority a == priority b
+    where (==) a b =  _priority a == _priority b
 
 instance Ord (PriorityCoroutine chanState r m)
-    where compare a b = compare (priority a) (priority b)
+    where compare a b = compare (_priority a) (_priority b)
 
 type CoroutineQueue chanState r m = MinQueue (PriorityCoroutine chanState r m)
 
 data ConcurrentState chanState r m = ConcurrentState
-    { _coroutines :: CoroutineQueue chanState r m
-    , _channels :: Map (Channel chanState) (ChanAndWaiters chanState r m)
-    , _nextChannelIdent :: Integer
-    , _nowTime :: Time
+    { _coroutines :: !(CoroutineQueue chanState r m)
+    , _scheduledRoutines :: [(Time, IConcurrentT chanState r m ())]
+    , _channels :: !(Map (Channel chanState) (ChanAndWaiters chanState r m))
+    , _nextChannelIdent :: !Integer
+    , _nowTime :: !Time
     }
 
 newtype IConcurrentT chanState r m a =
@@ -107,9 +109,11 @@ makeLenses ''ConcurrentState
 makeLenses ''ChanAndWaiters
 
 
-freshState :: ConcurrentState chanState r m
+freshState
+    :: ConcurrentState chanState r m
 freshState = ConcurrentState
     { _coroutines = Data.PQueue.Min.empty
+    , _scheduledRoutines = []
     , _channels = Data.Map.Strict.empty
     , _nextChannelIdent = 0
     , _nowTime = 0
@@ -139,13 +143,28 @@ dequeue
     => IConcurrentT chanState r m ()
 dequeue = do
     queue <- getCCs
+    scheduled <- use scheduledRoutines
     let mMin = Data.PQueue.Min.minView queue
-    case mMin of
-        Nothing -> return ()
-        Just (PriorityCoroutine nextCoroutine priority, modifiedQueue) -> do
+    case (mMin, scheduled) of
+        (Nothing, []) -> return ()
+        (Just (PriorityCoroutine nextCoroutine priority, modifiedQueue), []) -> do
             putCCs modifiedQueue
             updateNow priority
             nextCoroutine
+        (Nothing, (priority, nextCoroutine): tl) -> do
+            scheduledRoutines .= tl
+            updateNow priority
+            nextCoroutine
+        (Just (PriorityCoroutine nextCoroutineQ priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
+            if priorityL <= priorityQ
+            then do
+                scheduledRoutines .= tl
+                updateNow priorityL
+                nextCoroutineL
+            else do
+                putCCs modifiedQueue
+                updateNow priorityQ
+                nextCoroutineQ
 
 ischeduleDuration
     :: Monad m
@@ -167,9 +186,6 @@ isleep
     => Duration
     -> IConcurrentT r () m ()
 isleep duration =
---    callCC $ \k -> do
---        ischeduleDuration duration (k ())
---        dequeue
     IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
         ischeduleDuration duration (IConcurrentT (lift (k ())))
         dequeue
@@ -194,6 +210,21 @@ schedule
     -> ConcurrentT chanState r m ()
 schedule time (ConcurrentT f) =
     ConcurrentT (ischedule time f)
+
+lazySchedule
+    :: Monad m
+    => [(Time, ConcurrentT chanState r m ())]
+    -> ConcurrentT chanState r m ()
+lazySchedule scheduled =
+    ConcurrentT (ilazySchedule [(time, runConcurrentT' t) | (time, t) <- scheduled])
+
+ilazySchedule
+    :: Monad m
+    => [(Time, IConcurrentT chanState r m ())]
+    -> IConcurrentT chanState r m ()
+ilazySchedule scheduled =
+    scheduledRoutines .= scheduled
+
 
 ischedule
     :: Monad m
@@ -223,20 +254,19 @@ inow = use nowTime
 
 fork
     :: Monad m
-    => ConcurrentT chanState r m ()
-    -> ConcurrentT chanState r m ()
+    => ConcurrentT chanState () m ()
+    -> ConcurrentT chanState () m ()
 fork (ConcurrentT f) =
     ConcurrentT (ifork f)
 
 ifork
     :: Monad m
-    => IConcurrentT chanState r m ()
-    -> IConcurrentT chanState r m ()
+    => IConcurrentT chanState () m ()
+    -> IConcurrentT chanState () m ()
 ifork routine =
-    callCC $ \k -> do
-        ischeduleDuration 0 (k ())
+    IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
+        ischeduleDuration 0 (IConcurrentT (lift (k ())))
         routine
-        dequeue
 
 newChannel
     :: Monad m
@@ -248,7 +278,6 @@ inewChannel
     :: Monad m
     => Maybe Int
     -> IConcurrentT chanState r m (Channel chanState)
--- ignoring queue size for now..., it's just always 1 (one)
 inewChannel mChanSize = do
     -- grab the next channel identifier and then
     -- immediately increment it for the next use
@@ -274,7 +303,7 @@ iwriteChannel
     => Channel chanState
     -> chanState
     -> IConcurrentT chanState () m ()
-iwriteChannel chan@(Channel ident mMaxSize) item = do
+iwriteChannel chan@(Channel _ident mMaxSize) item = do
     chanMap <- use channels
     let chanContents = chanMap ^? (ix chan . contents)
         chanCurrentSize = maybe 0 Data.Sequence.length chanContents
@@ -301,8 +330,8 @@ iwriteChannel chan@(Channel ident mMaxSize) item = do
     -- write the value to the queue
     channels . ix chan . contents %= (|> item)
 
-    chanMap <- use channels
-    let readerView = fromMaybe EmptyL ((viewl . _readers) <$> Data.Map.Strict.lookup chan chanMap)
+    chanMap2 <- use channels
+    let readerView = fromMaybe EmptyL ((viewl . _readers) <$> Data.Map.Strict.lookup chan chanMap2)
     case readerView of
         -- there are no readers
         EmptyL ->
@@ -311,7 +340,6 @@ iwriteChannel chan@(Channel ident mMaxSize) item = do
         nextReader :< newReaders -> do
             channels . ix chan . readers .= newReaders
             nextReader
-            -- should we be yielding here at all?
 
 readChannel
     :: Monad m
@@ -342,8 +370,8 @@ ireadChannel chan = do
             channels . ix chan . contents .= newSeq
 
             -- see if there are any writers
-            chanMap <- use channels
-            let writerView = fromMaybe EmptyL ((viewl . _writers) <$> Data.Map.Strict.lookup chan chanMap)
+            chanMap2 <- use channels
+            let writerView = fromMaybe EmptyL ((viewl . _writers) <$> Data.Map.Strict.lookup chan chanMap2)
             case writerView of
                 EmptyL ->
                     return val
