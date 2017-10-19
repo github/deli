@@ -33,7 +33,7 @@ library
 executable deli-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -O1
+  ghc-options:         -O2
   build-depends:       base
                      , mtl
                      , deli

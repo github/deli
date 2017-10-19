@@ -1,5 +1,10 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Control.Monad.Concurrent
     ( Channel
@@ -20,15 +25,81 @@ module Control.Monad.Concurrent
     , runConcurrentT
     ) where
 
-import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
-import Data.PQueue.Min
 import Control.Lens (at, ix, makeLenses, to, use, (^?), (.=), (+=), (%=), (?~))
-import Control.Monad.Cont
+--import Control.Monad.Cont (MonadCont(..))
 import Control.Monad.State.Strict
-import Control.Monad.Trans.Cont (resetT, shiftT)
-import Data.Sequence
+--import Control.Monad.Trans.Cont (resetT, shiftT)
 import Data.Map.Strict
 import Data.Maybe
+import Data.PQueue.Min as PQueue
+import Data.Sequence
+import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
+import qualified Control.Monad.Fail as Fail
+
+------------------------------------------------------------------------------
+-- ## Our Version of ContT
+------------------------------------------------------------------------------
+
+newtype ContT r m a = ContT { runContT :: (a -> m r) -> m r }
+
+evalContT :: (Monad m) => ContT r m r -> m r
+evalContT m = runContT m return
+{-# INLINE evalContT #-}
+
+shiftT :: (Monad m) => ((a -> m r) -> ContT r m r) -> ContT r m a
+shiftT f = ContT (evalContT . f)
+{-# INLINE shiftT #-}
+
+resetT :: (Monad m) => ContT r m r -> ContT r' m r
+resetT = lift . evalContT
+{-# INLINE resetT #-}
+
+instance Functor (ContT r m) where
+    fmap f m = ContT $ \ c -> runContT m (c . f)
+    {-# INLINE fmap #-}
+
+instance Applicative (ContT r m) where
+    pure x  = ContT ($ x)
+    {-# INLINE pure #-}
+    f <*> v = ContT $ \ c -> runContT f $ \ g -> runContT v (c . g)
+    {-# INLINE (<*>) #-}
+    --m *> k = m >>= \_ -> k
+    m *> k = m >>= const k
+    {-# INLINE (*>) #-}
+
+instance Monad (ContT r m) where
+#if !(MIN_VERSION_base(4,8,0))
+    return x = ContT ($ x)
+    {-# INLINE return #-}
+#endif
+    m >>= k  = ContT $ \ c -> runContT m (\ x -> runContT (k x) c)
+    {-# INLINE (>>=) #-}
+
+#if MIN_VERSION_base(4,9,0)
+instance (Fail.MonadFail m) => Fail.MonadFail (ContT r m) where
+    fail msg = ContT $ \ _ -> Fail.fail msg
+    {-# INLINE fail #-}
+#endif
+
+instance MonadTrans (ContT r) where
+    lift m = ContT (m >>=)
+    {-# INLINE lift #-}
+
+instance (MonadIO m) => MonadIO (ContT r m) where
+    liftIO = lift . liftIO
+    {-# INLINE liftIO #-}
+
+--instance MonadCont (ContT r m) where
+--    callCC = localCallCC
+
+instance MonadState s m => MonadState s (ContT r m) where
+    get = lift get
+    put = lift . put
+    state = lift . state
+
+------------------------------------------------------------------------------
+--
+------------------------------------------------------------------------------
 
 -- ** delimited continuations **
 -- shift = escape
@@ -67,9 +138,11 @@ subtractTime (Time end) (Time start) =
     Duration (end - start)
 
 data PriorityCoroutine chanState r m = PriorityCoroutine
-    { _routine :: !(IConcurrentT chanState r m ())
+    { _routine :: IConcurrentT chanState r m ()
     , _priority :: !Time
     }
+
+-- f *> v = ContT $ \ c -> runContT (ContT $ \ c' -> runContT f (c' . const id)) $ \ g -> runContT v (c . g)
 
 instance Eq (PriorityCoroutine chanState r m)
     where (==) a b =  _priority a == _priority b
@@ -90,7 +163,7 @@ data ConcurrentState chanState r m = ConcurrentState
 newtype IConcurrentT chanState r m a =
     IConcurrentT
         { runIConcurrentT' :: ContT r (StateT (ConcurrentState chanState r m) m) a
-        } deriving (Functor, Applicative, Monad, MonadCont, MonadIO, MonadState (ConcurrentState chanState r m))
+        } deriving (Functor, Applicative, Monad, MonadIO, MonadState (ConcurrentState chanState r m))
 
 instance MonadTrans (IConcurrentT chanState r) where
     lift = IConcurrentT . lift . lift
@@ -98,7 +171,7 @@ instance MonadTrans (IConcurrentT chanState r) where
 newtype ConcurrentT chanState r m a =
     ConcurrentT
         { runConcurrentT' :: IConcurrentT chanState r m a
-        } deriving (Functor, Applicative, Monad, MonadCont, MonadIO)
+        } deriving (Functor, Applicative, Monad, MonadIO)
 
 instance MonadTrans (ConcurrentT chanState r) where
     lift = ConcurrentT . IConcurrentT . lift . lift
@@ -112,7 +185,7 @@ makeLenses ''ChanAndWaiters
 freshState
     :: ConcurrentState chanState r m
 freshState = ConcurrentState
-    { _coroutines = Data.PQueue.Min.empty
+    { _coroutines = PQueue.empty
     , _scheduledRoutines = []
     , _channels = Data.Map.Strict.empty
     , _nextChannelIdent = 0
@@ -143,28 +216,34 @@ dequeue
     => IConcurrentT chanState r m ()
 dequeue = do
     queue <- getCCs
-    scheduled <- use scheduledRoutines
-    let mMin = Data.PQueue.Min.minView queue
-    case (mMin, scheduled) of
-        (Nothing, []) -> return ()
-        (Just (PriorityCoroutine nextCoroutine priority, modifiedQueue), []) -> do
+    --scheduled <- use scheduledRoutines
+    let mMin = PQueue.minView queue
+    case mMin of
+        Nothing -> return ()
+        Just (PriorityCoroutine nextCoroutine priority, modifiedQueue) -> do
             putCCs modifiedQueue
             updateNow priority
             nextCoroutine
-        (Nothing, (priority, nextCoroutine): tl) -> do
-            scheduledRoutines .= tl
-            updateNow priority
-            nextCoroutine
-        (Just (PriorityCoroutine nextCoroutineQ priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
-            if priorityL <= priorityQ
-            then do
-                scheduledRoutines .= tl
-                updateNow priorityL
-                nextCoroutineL
-            else do
-                putCCs modifiedQueue
-                updateNow priorityQ
-                nextCoroutineQ
+--    case (mMin, scheduled) of
+--        (Nothing, []) -> return ()
+--        (Just (PriorityCoroutine nextCoroutine priority, modifiedQueue), []) -> do
+--            putCCs modifiedQueue
+--            updateNow priority
+--            nextCoroutine
+--        (Nothing, (priority, nextCoroutine): tl) -> do
+--            scheduledRoutines .= tl
+--            updateNow priority
+--            nextCoroutine
+--        (Just (PriorityCoroutine nextCoroutineQ priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
+--            if priorityL <= priorityQ
+--            then do
+--                scheduledRoutines .= tl
+--                updateNow priorityL
+--                nextCoroutineL
+--            else do
+--                putCCs modifiedQueue
+--                updateNow priorityQ
+--                nextCoroutineQ
 
 ischeduleDuration
     :: Monad m
@@ -185,10 +264,17 @@ isleep
     :: Monad m
     => Duration
     -> IConcurrentT r () m ()
-isleep duration =
-    IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
-        ischeduleDuration duration (IConcurrentT (lift (k ())))
-        dequeue
+isleep duration = do
+    queue <- getCCs
+    if PQueue.null queue
+    then do
+        currentNow <- inow
+        updateNow (addDuration currentNow duration)
+    else
+        IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
+            let action = IConcurrentT (lift (k ()))
+            ischeduleDuration duration action
+            dequeue
 
 yield
     :: Monad m

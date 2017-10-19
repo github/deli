@@ -9,17 +9,12 @@ import System.Random
 main :: IO ()
 main =
     Concurrent.runConcurrentT $ do
-        Concurrent.fork $ do
-            replicateM_ 1000 (Concurrent.sleep 1)
-            time <- Concurrent.now
-            liftIO $ putStrLn $ "1: now is " ++ show time
-        Concurrent.fork $ do
-            replicateM_ 1000 (Concurrent.sleep 2)
-            time <- Concurrent.now
-            liftIO $ putStrLn $ "2: now is " ++ show time
-        replicateM_ 1000 (Concurrent.sleep 3)
-        time <- Concurrent.now
-        liftIO $ putStrLn $ "main: now is " ++ show time
+        Concurrent.fork $ forever $
+            Concurrent.sleep 1
+        Concurrent.fork $ forever $
+            Concurrent.sleep 1
+        forever $
+            Concurrent.sleep 1
 
 queueExample :: IO ()
 queueExample = do
