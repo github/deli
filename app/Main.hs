@@ -8,13 +8,13 @@ import System.Random
 
 main :: IO ()
 main =
-    Concurrent.runConcurrentT $ do
-        Concurrent.fork $ forever $
-            Concurrent.sleep 1
-        Concurrent.fork $ forever $
-            Concurrent.sleep 1
-        forever $
-            Concurrent.sleep 1
+    Concurrent.runConcurrentT $ forever $ Concurrent.sleep 1
+--        Concurrent.fork $ replicateM_ 100000 $
+--            Concurrent.sleep 1
+--        Concurrent.fork $ replicateM_ 100000 $
+--            Concurrent.sleep 1
+--        forever $
+--            Concurrent.sleep 1
 
 queueExample :: IO ()
 queueExample = do
