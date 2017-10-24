@@ -27,11 +27,22 @@ action
 action =
     forever $
         ContWrapper $ shiftT $ \k -> runContWrapper' $ do
-               put (ContWrapper (lift (k ())))
-               val <- get
-               val
+               addRoutine (ContWrapper (lift (k ())))
+               dequeue
+
+addRoutine
+    :: Monad m
+    => ContWrapper () m ()
+    -> ContWrapper () m ()
+addRoutine = put
+
+dequeue
+    :: Monad m
+    => ContWrapper () m ()
+dequeue =
+    join get
 
 main :: IO ()
 main = do
     putStrLn "running"
-    print (runIdentity (runContWrapper action))
+    runContWrapper action
