@@ -9,15 +9,15 @@ import Control.Monad.State.Strict
 
 newtype ContWrapper r m a =
     ContWrapper
-        { runContWrapper' :: ContT r (StateT (ContWrapper r m ()) m) a
-        } deriving (Functor, Applicative, Monad, MonadIO, MonadState (ContWrapper r m ()))
+        { runContWrapper' :: ContT r (StateT [ContWrapper r m ()] m) a
+        } deriving (Functor, Applicative, Monad, MonadIO, MonadState [ContWrapper r m ()])
 
 runContWrapper
     :: Monad m
     => ContWrapper r m r
     -> m r
 runContWrapper routine =
-    let defaultState = return ()
+    let defaultState = []
     in
     flip evalStateT defaultState $ runContT (resetT $ runContWrapper' routine) return
 
@@ -34,13 +34,21 @@ addRoutine
     :: Monad m
     => ContWrapper () m ()
     -> ContWrapper () m ()
-addRoutine = put
+addRoutine routine = do
+    routines <- get
+    put (routines ++ [routine])
 
 dequeue
     :: Monad m
     => ContWrapper () m ()
-dequeue =
-    join get
+dequeue = do
+    routines <- get
+    case routines of
+        [] ->
+            return ()
+        (h:tl) -> do
+            put tl
+            h
 
 main :: IO ()
 main = do
