@@ -40,6 +40,17 @@ executable deli-exe
                      , random
   default-language:    Haskell2010
 
+executable experiment
+  hs-source-dirs:      experiment
+  main-is:             Main.hs
+  ghc-options:         -O2
+  build-depends:       base
+                     , mtl
+                     , transformers
+                     , deli
+                     , random
+  default-language:    Haskell2010
+
 test-suite deli-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
