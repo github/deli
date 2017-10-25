@@ -28,10 +28,18 @@ runContWrapper routine =
     in
     flip evalStateT defaultState $ runContT (resetT $ runContWrapper' routine) return
 
+
+runNothing
+    :: Monad m
+    => ContWrapper (Maybe Integer) m ()
+    -> m (Maybe Integer)
+runNothing routine =
+    runContWrapper (routine *> return Nothing)
+
 action
     :: MonadIO m
-    => ContWrapper (Maybe Integer) m (Maybe Integer)
-action = do
+    => ContWrapper (Maybe Integer) m ()
+action =
     forever $ do
         routineIdent <- callCC $ \k -> do
                         ident <- gets _nextId
@@ -47,7 +55,6 @@ action = do
             -- hasn't actually been called yet
             ContWrapper $ shiftT $ \_ ->
                 runContWrapper' dequeue
-    return Nothing
 
 
 addRoutine
@@ -83,4 +90,4 @@ dequeue = do
 main :: IO ()
 main = do
     putStrLn "running"
-    void (runContWrapper action)
+    void (runNothing action)
