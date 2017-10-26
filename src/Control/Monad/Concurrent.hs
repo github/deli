@@ -302,7 +302,7 @@ ifork
     => IConcurrentT chanState m ()
     -> IConcurrentT chanState m ()
 ifork routine =
-    withJump (ischeduleDuration 0) (routine *> return Nothing)
+    withJump (ischeduleDuration 0) (routine *> dequeue)
 
 newChannel
     :: Monad m

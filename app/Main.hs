@@ -11,13 +11,13 @@ main =
     Concurrent.runConcurrentT $ do
         --chan <- Concurrent.newChannel Nothing
         Concurrent.fork $ do
-            Concurrent.sleep 2
+            replicateM_ 1000000 (Concurrent.sleep 1)
             liftIO $ putStrLn "1: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "1: " ++ show time)
             --Concurrent.writeChannel chan True
         Concurrent.fork $ do
-            Concurrent.sleep 1
+            replicateM_ 1000000 (Concurrent.sleep 2)
             liftIO $ putStrLn "2: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "2: " ++ show time)
@@ -27,7 +27,7 @@ main =
         --_ <- Concurrent.readChannel chan
         Concurrent.sleep 100
         time <- Concurrent.now
-        liftIO (print time)
+        liftIO (putStrLn $ "main: " ++ show time)
 
 queueExample :: IO ()
 queueExample = do
