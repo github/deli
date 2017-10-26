@@ -6,25 +6,27 @@ import Control.Monad (replicateM_, when, forever)
 import Control.Monad.Trans (liftIO)
 import System.Random
 
+import Debug.Trace
+
 main :: IO ()
 main =
     Concurrent.runConcurrentT $ do
-        --chan <- Concurrent.newChannel Nothing
+        chan <- Concurrent.newChannel Nothing
         Concurrent.fork $ do
-            replicateM_ 1000000 (Concurrent.sleep 1)
+            replicateM_ 100000 (Concurrent.sleep 1)
             liftIO $ putStrLn "1: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "1: " ++ show time)
             --Concurrent.writeChannel chan True
         Concurrent.fork $ do
-            replicateM_ 1000000 (Concurrent.sleep 2)
+            replicateM_ 100000 (Concurrent.sleep 2)
             liftIO $ putStrLn "2: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "2: " ++ show time)
             --Concurrent.writeChannel chan True
 
-        --_ <- Concurrent.readChannel chan
-        --_ <- Concurrent.readChannel chan
+        _ <- Concurrent.readChannel chan
+        -- _ <- Concurrent.readChannel chan
         Concurrent.sleep 100
         time <- Concurrent.now
         liftIO (putStrLn $ "main: " ++ show time)
@@ -36,6 +38,7 @@ queueExample = do
         action queue =
                     forever $ do
                             job <- readChannel queue
+                            traceM $ "found a job: " ++ show job
                             runJob job
         res = simulate gen jobs action
     print (length res)

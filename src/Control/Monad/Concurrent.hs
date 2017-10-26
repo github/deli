@@ -36,6 +36,34 @@ import Data.Sequence
 import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
 import Debug.Trace
 
+data Queue a = Queue
+    { _writeEnd :: [a]
+    , _readEnd :: [a]
+    }
+
+emptyQueue :: Queue a
+emptyQueue = Queue [] []
+
+readQueue
+    :: Queue a
+    -> Maybe (a, Queue a)
+readQueue (Queue writeEnd readEnd) =
+    case readEnd of
+        (h:tl) ->
+            let newQueue = Queue writeEnd tl
+            in Just (h, newQueue)
+        [] ->
+            if Prelude.null writeEnd
+            then Nothing
+            else readQueue (Queue [] (Prelude.reverse writeEnd))
+
+writeQueue
+    :: Queue a
+    -> a
+    -> Queue a
+writeQueue (Queue writeEnd readEnd) val =
+    Queue (val:writeEnd) readEnd
+
 -- ** delimited continuations **
 -- shift = escape
 -- reset = capture
@@ -46,10 +74,15 @@ data Channel a = Channel
     }
     deriving (Eq, Ord, Show)
 
+data IdentifiedCoroutine chanState m = IdentifiedCoroutine
+    { _identifiedRoutine :: IConcurrentT chanState m (Maybe Integer)
+    , _identifiedId :: Integer
+    }
+
 data ChanAndWaiters chanState m = ChanAndWaiters
     { _contents :: !(Seq chanState)
-    , _readers :: !(Seq (Integer, IConcurrentT chanState m (Maybe Integer)))
-    , _writers :: !(Seq (Integer, IConcurrentT chanState m (Maybe Integer)))
+    , _readers :: Queue (IdentifiedCoroutine chanState m)
+    , _writers :: Queue (IdentifiedCoroutine chanState m)
     }
 
 newtype Time = Time DiffTime
@@ -172,35 +205,32 @@ dequeue
     => IConcurrentT chanState m (Maybe Integer)
 dequeue = do
     queue <- getCCs
-    --scheduled <- use scheduledRoutines
+    scheduled <- use scheduledRoutines
     let mMin = PQueue.minView queue
-    case mMin of
-        Nothing -> return Nothing
-        Just (PriorityCoroutine nextCoroutine jumpIdent priority, modifiedQueue) -> do
+    case (mMin, scheduled) of
+        (Nothing, []) -> return Nothing
+        (Just (PriorityCoroutine nextCoroutine jumpIdent priority, modifiedQueue), []) -> do
             putCCs modifiedQueue
             updateNow priority
             currentlyExecuting .= Just jumpIdent
             nextCoroutine
---    case (mMin, scheduled) of
---        (Nothing, []) -> return ()
---        (Just (PriorityCoroutine nextCoroutine priority, modifiedQueue), []) -> do
---            putCCs modifiedQueue
---            updateNow priority
---            nextCoroutine
---        (Nothing, (priority, nextCoroutine): tl) -> do
---            scheduledRoutines .= tl
---            updateNow priority
---            nextCoroutine
---        (Just (PriorityCoroutine nextCoroutineQ priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
---            if priorityL <= priorityQ
---            then do
---                scheduledRoutines .= tl
---                updateNow priorityL
---                nextCoroutineL
---            else do
---                putCCs modifiedQueue
---                updateNow priorityQ
---                nextCoroutineQ
+        (Nothing, (priority, nextCoroutine): tl) -> do
+            scheduledRoutines .= tl
+            updateNow priority
+            currentlyExecuting .= Nothing
+            nextCoroutine *> return Nothing
+        (Just (PriorityCoroutine nextCoroutineQ jumpIdent priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
+            if priorityL <= priorityQ
+            then do
+                scheduledRoutines .= tl
+                updateNow priorityL
+                currentlyExecuting .= Nothing
+                nextCoroutineL *> return Nothing
+            else do
+                putCCs modifiedQueue
+                updateNow priorityQ
+                currentlyExecuting .= Just jumpIdent
+                nextCoroutineQ
 
 ischeduleDuration
     :: Monad m
@@ -322,7 +352,7 @@ inewChannel mChanSize = do
 
     let chan = Channel chanIdent mChanSize
         emptySeq = Data.Sequence.empty
-        chanAndWaiters = ChanAndWaiters emptySeq emptySeq emptySeq
+        chanAndWaiters = ChanAndWaiters emptySeq emptyQueue emptyQueue
     channels %= (at chan ?~ chanAndWaiters)
     return chan
 
@@ -348,8 +378,9 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
     -- once the queue is empty/writable
     case mMaxSize of
         Just maxSize | chanCurrentSize >= maxSize ->
-            flip withJump dequeue $ \jump jumpIdent ->
-                channels . ix chan . writers %= (|> (jumpIdent, jump))
+            flip withJump dequeue $ \jump jumpIdent -> do
+                let ident = IdentifiedCoroutine jump jumpIdent
+                channels . ix chan . writers %= flip writeQueue ident
         _ ->
             return ()
 
@@ -362,14 +393,14 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
     channels . ix chan . contents %= (|> item)
 
     chanMap2 <- use channels
-    let readerView = fromMaybe EmptyL ((viewl . _readers) <$> Data.Map.Strict.lookup chan chanMap2)
+    let readerView = join $ (readQueue . _readers) <$> Data.Map.Strict.lookup chan chanMap2
     case readerView of
         -- there are no readers
-        EmptyL -> do
+        Nothing -> do
             traceM $ "didn't find a reader: " ++ show chan
             dequeue *> return ()
         -- there is a reader, call the reader
-        (jumpId, nextReader) :< newReaders -> do
+        Just (IdentifiedCoroutine nextReader jumpId, newReaders) -> do
             traceM $ "did find a reader: " ++ show chan
             channels . ix chan . readers .= newReaders
             currentlyExecuting .= Just jumpId
@@ -391,10 +422,11 @@ ireadChannel chan = do
 
     case mChanContents of
         EmptyL -> do
-            traceM $ "channel contents were empty: " ++ show chan
+            --traceM $ "channel contents were empty: " ++ show chan
             -- nothing to read, so we add ourselves to the queue
-            flip withJump dequeue $ \jump jumpIdent ->
-                channels . ix chan . readers %= (|> (jumpIdent, jump))
+            flip withJump dequeue $ \jump jumpIdent -> do
+                let ident = IdentifiedCoroutine jump jumpIdent
+                channels . ix chan . readers %= flip writeQueue ident
             -- we can actually just recur here to read the value, since now
             -- that we're running again, the queue will have a value for us to
             -- read
@@ -405,11 +437,11 @@ ireadChannel chan = do
 
             -- see if there are any writers
             chanMap2 <- use channels
-            let writerView = fromMaybe EmptyL ((viewl . _writers) <$> Data.Map.Strict.lookup chan chanMap2)
+            let writerView = join $ (readQueue . _writers) <$> Data.Map.Strict.lookup chan chanMap2
             case writerView of
-                EmptyL ->
+                Nothing ->
                     return val
-                (jumpId, nextWriter) :< newWriters -> do
+                Just (IdentifiedCoroutine nextWriter jumpId, newWriters) -> do
                     channels . ix chan . writers .= newWriters
                     currentlyExecuting .= Just jumpId
                     _ <- nextWriter
