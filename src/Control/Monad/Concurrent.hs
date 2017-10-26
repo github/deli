@@ -267,6 +267,7 @@ ifork routine =
     IConcurrentT $ shiftT $ \k -> runIConcurrentT' $ do
         ischeduleDuration 0 (IConcurrentT (lift (k ())))
         routine
+        dequeue
 
 newChannel
     :: Monad m

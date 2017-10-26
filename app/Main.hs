@@ -7,9 +7,19 @@ import Control.Monad.Trans (liftIO)
 import System.Random
 
 main :: IO ()
-main = do
-    Concurrent.runConcurrentT $
-        replicateM_ 100000000 (Concurrent.sleep 1)
+main =
+    Concurrent.runConcurrentT $ do
+        Concurrent.fork $ do
+            replicateM_ 1000 (Concurrent.sleep 1)
+            time <- Concurrent.now
+            liftIO $ putStrLn $ "1: now is " ++ show time
+        Concurrent.fork $ do
+            replicateM_ 1000 (Concurrent.sleep 2)
+            time <- Concurrent.now
+            liftIO $ putStrLn $ "2: now is " ++ show time
+        replicateM_ 1000 (Concurrent.sleep 3)
+        time <- Concurrent.now
+        liftIO $ putStrLn $ "main: now is " ++ show time
 
 queueExample :: IO ()
 queueExample = do
