@@ -75,8 +75,8 @@ data Channel a = Channel
     deriving (Eq, Ord, Show)
 
 data IdentifiedCoroutine chanState m = IdentifiedCoroutine
-    { _identifiedRoutine :: IConcurrentT chanState m (Maybe Integer)
-    , _identifiedId :: Integer
+    { _identifiedRoutine :: !(IConcurrentT chanState m (Maybe Integer))
+    , _identifiedId :: !Integer
     }
 
 data ChanAndWaiters chanState m = ChanAndWaiters
@@ -425,7 +425,7 @@ ireadChannel chan = do
             --traceM $ "channel contents were empty: " ++ show chan
             -- nothing to read, so we add ourselves to the queue
             flip withJump dequeue $ \jump jumpIdent -> do
-                let ident = IdentifiedCoroutine jump jumpIdent
+                let !ident = IdentifiedCoroutine jump jumpIdent
                 channels . ix chan . readers %= flip writeQueue ident
             -- we can actually just recur here to read the value, since now
             -- that we're running again, the queue will have a value for us to

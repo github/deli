@@ -11,22 +11,22 @@ import Debug.Trace
 main :: IO ()
 main =
     Concurrent.runConcurrentT $ do
-        chan <- Concurrent.newChannel Nothing
+        chan <- Concurrent.newChannel (Just 1)
         Concurrent.fork $ do
             replicateM_ 100000 (Concurrent.sleep 1)
             liftIO $ putStrLn "1: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "1: " ++ show time)
-            --Concurrent.writeChannel chan True
+            Concurrent.writeChannel chan True
         Concurrent.fork $ do
             replicateM_ 100000 (Concurrent.sleep 2)
             liftIO $ putStrLn "2: after sleeping"
             time <- Concurrent.now
             liftIO (putStrLn $ "2: " ++ show time)
-            --Concurrent.writeChannel chan True
+            Concurrent.writeChannel chan True
 
         _ <- Concurrent.readChannel chan
-        -- _ <- Concurrent.readChannel chan
+        _ <- Concurrent.readChannel chan
         Concurrent.sleep 100
         time <- Concurrent.now
         liftIO (putStrLn $ "main: " ++ show time)
