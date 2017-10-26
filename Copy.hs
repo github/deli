@@ -59,44 +59,38 @@ action
     :: MonadIO m
     => ContWrapper m ()
 action =
-    mapM_ sleep [0,10..10000000]
+    mapM_ sleepDirect [0,10..10000000]
+
+sleep
+    :: Monad m
+    => Time
+    -> ContWrapper m (Maybe Integer)
+sleep time =
+    withJump (addRoutine time) dequeue
 
 sleepDirect
     :: Monad m
     => Time
-    -> ContWrapper m ()
+    -> ContWrapper m (Maybe Integer)
 sleepDirect time = do
     routineIdent <- callCC $ \k -> do
-                    ident <- gets _nextId
-                    addRoutine time (k (Just ident)) ident
-                    let modifier s = s { _nextId = _nextId s + 1 }
-                    modify modifier
-                    return Nothing
+                        ident <- gets _nextId
+                        addRoutine time (k (Just ident)) ident
+                        let modifier s = s { _nextId = _nextId s + 1 }
+                        modify modifier
+                        return Nothing
     currentIdent <- gets _currentlyExecuting
-    void $ if (routineIdent == currentIdent) && isJust routineIdent
+    if routineIdent == currentIdent
     then
-        --liftIO $ putStrLn "it's me!"
-        -- now we're running because `k' was called
         return Nothing
     else
-        --liftIO $ putStrLn "not me!"
-        -- we've registered the continuation, now time
-        -- to do whatever we were going to do next, the continuation
-        -- hasn't actually been called yet
-        ContWrapper $ shiftT $ \_ ->
-            runContWrapper' dequeue
-sleep
-    :: Monad m
-    => Time
-    -> ContWrapper m ()
-sleep time =
-    withJump (addRoutine time) dequeue
+        ContWrapper $ shiftT $ \_ -> runContWrapper' dequeue
 
 withJump
     :: Monad m
-    => (ContWrapper m (Maybe Integer) -> Integer -> ContWrapper m (Maybe Integer))
+    => (ContWrapper m (Maybe Integer) -> Integer -> ContWrapper m ())
     -> ContWrapper m (Maybe Integer)
-    -> ContWrapper m ()
+    -> ContWrapper m (Maybe Integer)
 withJump callback whenBlocked = do
     routineIdent <- callCC $ \k -> do
                         ident <- gets _nextId
@@ -105,18 +99,19 @@ withJump callback whenBlocked = do
                         modify modifier
                         return Nothing
     currentIdent <- gets _currentlyExecuting
-    void $ if (routineIdent == currentIdent) && isJust routineIdent
+    if routineIdent == currentIdent
     then
         return Nothing
     else
         ContWrapper $ shiftT $ \_ -> runContWrapper' whenBlocked
+
 
 addRoutine
     :: Monad m
     => Time
     -> ContWrapper m (Maybe Integer)
     -> Integer
-    -> ContWrapper m (Maybe Integer)
+    -> ContWrapper m ()
 addRoutine time routine jumpId = do
     routines <- gets _routineList
     now <- gets _time
@@ -124,7 +119,6 @@ addRoutine time routine jumpId = do
             s { _routineList = insertBehind (PriorityCoroutine routine jumpId (now + time)) routines
               }
     modify modifier
-    return Nothing
 
 dequeue
     :: Monad m
@@ -147,4 +141,4 @@ dequeue = do
 main :: IO ()
 main = do
     putStrLn "running"
-    void (runNothing action)
+    void (runContWrapper (action *> dequeue))

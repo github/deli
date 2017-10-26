@@ -8,13 +8,26 @@ import System.Random
 
 main :: IO ()
 main =
-    Concurrent.runConcurrentT $ replicateM_ 100000 $ Concurrent.sleep 1
---        Concurrent.fork $ replicateM_ 100000 $
---            Concurrent.sleep 1
---        Concurrent.fork $ replicateM_ 100000 $
---            Concurrent.sleep 1
---        forever $
---            Concurrent.sleep 1
+    Concurrent.runConcurrentT $ do
+        --chan <- Concurrent.newChannel Nothing
+        Concurrent.fork $ do
+            Concurrent.sleep 2
+            liftIO $ putStrLn "1: after sleeping"
+            time <- Concurrent.now
+            liftIO (putStrLn $ "1: " ++ show time)
+            --Concurrent.writeChannel chan True
+        Concurrent.fork $ do
+            Concurrent.sleep 1
+            liftIO $ putStrLn "2: after sleeping"
+            time <- Concurrent.now
+            liftIO (putStrLn $ "2: " ++ show time)
+            --Concurrent.writeChannel chan True
+
+        --_ <- Concurrent.readChannel chan
+        --_ <- Concurrent.readChannel chan
+        Concurrent.sleep 100
+        time <- Concurrent.now
+        liftIO (print time)
 
 queueExample :: IO ()
 queueExample = do
@@ -59,7 +72,7 @@ examples = do
 
 printN
     :: Concurrent.Duration
-    -> Concurrent.ConcurrentT chanState () IO ()
+    -> Concurrent.ConcurrentT chanState IO ()
 printN time = do
     Concurrent.sleep time
     liftIO (print time)

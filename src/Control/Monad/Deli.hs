@@ -38,7 +38,7 @@ newtype FinishedJob = FinishedJob
 
 newtype Deli chanState a =
     Deli
-        { _getDeli :: Concurrent.ConcurrentT chanState () (RandT StdGen (Writer (Sequence.Seq FinishedJob))) a
+        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (Writer (Sequence.Seq FinishedJob))) a
         } deriving (Functor, Applicative, Monad)
 
 instance MonadRandom (Deli chanState) where
