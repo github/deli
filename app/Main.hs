@@ -2,7 +2,7 @@ module Main where
 
 import qualified Control.Monad.Concurrent as Concurrent
 import Control.Monad.Deli
-import Control.Monad (replicateM_, when, forever)
+import Control.Monad (forM_, replicateM_, when, forever)
 import Control.Monad.Trans (liftIO)
 import System.Random
 
@@ -13,23 +13,18 @@ main =
     Concurrent.runConcurrentT $ do
         chan <- Concurrent.newChannel (Just 1)
         Concurrent.fork $ do
-            replicateM_ 100000 (Concurrent.sleep 1)
-            liftIO $ putStrLn "1: after sleeping"
-            time <- Concurrent.now
-            liftIO (putStrLn $ "1: " ++ show time)
-            Concurrent.writeChannel chan True
-        Concurrent.fork $ do
-            replicateM_ 100000 (Concurrent.sleep 2)
-            liftIO $ putStrLn "2: after sleeping"
-            time <- Concurrent.now
-            liftIO (putStrLn $ "2: " ++ show time)
-            Concurrent.writeChannel chan True
+            replicateM_ 100000 $ do
+                Concurrent.writeChannel chan True
+                Concurrent.sleep 1
 
-        _ <- Concurrent.readChannel chan
-        _ <- Concurrent.readChannel chan
-        Concurrent.sleep 100
-        time <- Concurrent.now
-        liftIO (putStrLn $ "main: " ++ show time)
+        Concurrent.fork $ do
+            replicateM_ 100000$ do
+                Concurrent.writeChannel chan True
+                Concurrent.sleep 2
+
+        replicateM_ (2 * 100000) $ do
+            _ <- Concurrent.readChannel chan
+            Concurrent.sleep 1
 
 queueExample :: IO ()
 queueExample = do
