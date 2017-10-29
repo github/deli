@@ -1,40 +1,41 @@
 module Main where
 
-import qualified Control.Monad.Concurrent as Concurrent
+import Control.Monad (forM_, replicateM_, when, forever, void)
 import Control.Monad.Deli
-import Control.Monad (forM_, replicateM_, when, forever)
 import Control.Monad.Trans (liftIO)
 import System.Random
-
-import Debug.Trace
+import qualified Control.Monad.Concurrent as Concurrent
 
 main :: IO ()
-main =
+main = queueExample
+--    concurrentExample
+--    let n = 10 * 1000 * 1000
+--    Concurrent.runConcurrentT (replicateM_ n (return ()))
+--    evalContT (replicateM_ n (return ()))
+
+concurrentExample :: IO ()
+concurrentExample =
     Concurrent.runConcurrentT $ do
         chan <- Concurrent.newChannel (Just 1)
-        Concurrent.fork $ do
-            replicateM_ 100000 $ do
-                Concurrent.writeChannel chan True
-                Concurrent.sleep 1
+        replicateM_ 100 $
+            Concurrent.fork $
+                replicateM_ 10000 $ do
+                    Concurrent.writeChannel chan True
+                    Concurrent.sleep 1
 
-        Concurrent.fork $ do
-            replicateM_ 100000$ do
-                Concurrent.writeChannel chan True
-                Concurrent.sleep 2
 
-        replicateM_ (2 * 100000) $ do
-            _ <- Concurrent.readChannel chan
-            Concurrent.sleep 1
+        replicateM_ 10 $
+            Concurrent.fork $
+                replicateM_ (10 * 10000) $ do
+                    _ <- Concurrent.readChannel chan
+                    Concurrent.sleep 1
 
 queueExample :: IO ()
 queueExample = do
     gen <- newStdGen
-    let jobs = [Job x 10 | x <- [0,10..1000000 - 1]]
+    let jobs = [Job x 10 | x <- [0,10..(10 * 1000 * 1000) - 1]]
         action queue =
-                    forever $ do
-                            job <- readChannel queue
-                            traceM $ "found a job: " ++ show job
-                            runJob job
+                    forever $ readChannel queue >>= runJob
         res = simulate gen jobs action
     print (length res)
 

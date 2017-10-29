@@ -33,11 +33,12 @@ library
 executable deli-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -O2
+  ghc-options:         -O1
   build-depends:       base
                      , mtl
                      , deli
                      , random
+                     , transformers
   default-language:    Haskell2010
 
 executable experiment

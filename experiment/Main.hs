@@ -92,8 +92,7 @@ dequeue = do
                       , _time = priority
                       }
             modify modifier
-            routine
-            --ContWrapper (resetT (runContWrapper' routine))
+            ContWrapper (resetT (runContWrapper' routine))
             dequeue
 
 main :: IO ()

@@ -1,10 +1,5 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Control.Monad.Concurrent
     ( Channel
@@ -26,15 +21,13 @@ module Control.Monad.Concurrent
     ) where
 
 import Control.Lens (at, ix, makeLenses, to, use, (^?), (.=), (+=), (%=), (?~))
-import Control.Monad.Cont
 import Control.Monad.State.Strict
-import Control.Monad.Trans.Cont (resetT, shiftT)
+import Control.Monad.Trans.Cont (ContT, evalContT, resetT, shiftT)
 import Data.Map.Strict
 import Data.Maybe
 import Data.PQueue.Min as PQueue
 import Data.Sequence
 import Data.Time.Clock (DiffTime, picosecondsToDiffTime)
-import Debug.Trace
 
 data Queue a = Queue
     { _writeEnd :: [a]
@@ -124,7 +117,14 @@ data ConcurrentState chanState m = ConcurrentState
 newtype IConcurrentT chanState m a =
     IConcurrentT
         { runIConcurrentT' :: ContT () (StateT (ConcurrentState chanState m) m) a
-        } deriving (Functor, Applicative, Monad, MonadIO, MonadCont, MonadState (ConcurrentState chanState m))
+        } deriving (Functor, Monad, MonadIO, MonadState (ConcurrentState chanState m))
+
+instance Applicative (IConcurrentT chanState m) where
+    pure = IConcurrentT . pure
+
+    (IConcurrentT a) <*> (IConcurrentT b) = IConcurrentT (a <*> b)
+
+    (IConcurrentT a) *> (IConcurrentT b) = IConcurrentT $ a >>= const b
 
 instance MonadTrans (IConcurrentT chanState) where
     lift = IConcurrentT . lift . lift
@@ -435,7 +435,7 @@ runIConcurrentT routine =
             (resetT (runIConcurrentT' routine))
             runIConcurrentT' dequeue
     in
-    void $ flip evalStateT freshState $ runContT resetAction return
+    void $ flip evalStateT freshState $ evalContT resetAction
 
 microsecond :: Duration
 microsecond = Duration (picosecondsToDiffTime 1000000)

@@ -1,5 +1,6 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Control.Monad.Deli
     ( Deli
@@ -19,13 +20,13 @@ module Control.Monad.Deli
     , simulate
     ) where
 
-import qualified Control.Monad.Concurrent as Concurrent
 import Control.Monad.Random.Strict
-import Control.Monad.Writer.Strict (Writer, runWriter, tell)
+import Control.Monad.State.Strict (State, execState, modify')
+import Data.Sequence ((|>))
 import System.Random (StdGen)
-import qualified Data.Sequence as Sequence
---import qualified Data.DList as DList
+import qualified Control.Monad.Concurrent as Concurrent
 import qualified Data.Foldable as Foldable
+import qualified Data.Sequence as Sequence
 
 data Job = Job
     { _jobStart :: !Concurrent.Time
@@ -38,7 +39,7 @@ newtype FinishedJob = FinishedJob
 
 newtype Deli chanState a =
     Deli
-        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (Writer (Sequence.Seq FinishedJob))) a
+        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (State (Sequence.Seq FinishedJob))) a
         } deriving (Functor, Applicative, Monad)
 
 instance MonadRandom (Deli chanState) where
@@ -95,9 +96,9 @@ runDeli
     -> Deli chanState ()
     -> [FinishedJob]
 runDeli gen (Deli conc) =
-    let randomAction = Concurrent.runConcurrentT conc
-        writerAction = evalRandT randomAction gen
-        (_, res) = runWriter writerAction
+    let !randomAction = Concurrent.runConcurrentT conc
+        !writerAction = evalRandT randomAction gen
+        !res = execState writerAction Sequence.empty
     in Foldable.toList res
 
 runJob
@@ -106,9 +107,9 @@ runJob
 runJob (Job start duration) = do
     Deli (Concurrent.sleep duration)
     nowTime <- Deli Concurrent.now
-    let finished = FinishedJob (Concurrent.subtractTime nowTime start)
-    Deli (lift (tell (Sequence.singleton finished)))
-    return ()
+    let !finished = FinishedJob (Concurrent.subtractTime nowTime start)
+        fun s = s |> finished
+    Deli (lift (modify' fun))
 
 simulate
     :: StdGen
