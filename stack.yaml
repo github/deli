@@ -41,6 +41,12 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
     - transformers-0.5.5.0
+    - random-fu-0.2.7.0
+    - rvar-0.2.0.3
+    - MonadPrompt-1.0.0.5
+    - log-domain-0.12
+    - random-source-0.3.0.6
+    - flexible-defaults-0.0.1.2
 
 # Override default flag values for local packages and extra-deps
 flags: {}

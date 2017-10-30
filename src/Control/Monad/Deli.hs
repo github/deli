@@ -1,14 +1,20 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Control.Monad.Deli
     ( Deli
     , Job(..)
+    , DeliState(..)
     -- re-exported from Control.Monad.Concurrent
-    , Concurrent.Time
+    , Concurrent.Time(..)
     , Concurrent.Duration
     , Concurrent.Channel
+    , Concurrent.microsecond
+    , Concurrent.millisecond
+    , Concurrent.millisecondsToDuration
     , fork
     , sleep
     , now
@@ -20,13 +26,16 @@ module Control.Monad.Deli
     , simulate
     ) where
 
-import Control.Monad.Random.Strict
+import Control.Lens (makeLenses, (%~), (+~))
+--import Control.Monad.Random.Strict
 import Control.Monad.State.Strict (State, execState, modify')
-import Data.Sequence ((|>))
+import Data.Function ((&))
+import Data.TDigest (TDigest, tdigest)
 import System.Random (StdGen)
 import qualified Control.Monad.Concurrent as Concurrent
-import qualified Data.Foldable as Foldable
-import qualified Data.Sequence as Sequence
+import qualified Data.TDigest as TDigest
+
+import Debug.Trace
 
 data Job = Job
     { _jobStart :: !Concurrent.Time
@@ -37,19 +46,31 @@ newtype FinishedJob = FinishedJob
     { _jobSojourn :: Concurrent.Duration
     } deriving (Show, Eq, Ord)
 
+data DeliState = DeliState
+    { _sojournStatistics :: !(TDigest 10)
+    , _perfectStatistics :: !(TDigest 10)
+    , _numProcessed :: !Integer
+    } deriving (Show)
+
+makeLenses ''DeliState
+
+freshState :: DeliState
+freshState = DeliState emptyDigest emptyDigest 0
+    where emptyDigest = tdigest []
+
 newtype Deli chanState a =
     Deli
-        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (State (Sequence.Seq FinishedJob))) a
+        { _getDeli :: Concurrent.ConcurrentT chanState (State DeliState) a
         } deriving (Functor, Applicative, Monad)
 
-instance MonadRandom (Deli chanState) where
-    getRandomR range = getRandomR range >>= Deli . pure
-
-    getRandom = getRandom >>= Deli . pure
-
-    getRandomRs range = getRandomRs range >>= Deli . pure
-
-    getRandoms = getRandoms >>= Deli . pure
+--instance MonadRandom (Deli chanState) where
+--    getRandomR range = getRandomR range >>= Deli . pure
+--
+--    getRandom = getRandom >>= Deli . pure
+--
+--    getRandomRs range = getRandomRs range >>= Deli . pure
+--
+--    getRandoms = getRandoms >>= Deli . pure
 
 ------------------------------------------------------------------------------
 -- ## Wrappers around the Control.Monad.Concurrent API
@@ -94,12 +115,12 @@ readChannel = Deli . Concurrent.readChannel
 runDeli
     :: StdGen
     -> Deli chanState ()
-    -> [FinishedJob]
-runDeli gen (Deli conc) =
-    let !randomAction = Concurrent.runConcurrentT conc
-        !writerAction = evalRandT randomAction gen
-        !res = execState writerAction Sequence.empty
-    in Foldable.toList res
+    -> DeliState
+runDeli _gen (Deli conc) =
+    --let !randomAction = Concurrent.runConcurrentT conc
+    let !writerAction = Concurrent.runConcurrentT conc
+        !res = execState writerAction freshState
+    in res
 
 runJob
     :: Job
@@ -107,15 +128,17 @@ runJob
 runJob (Job start duration) = do
     Deli (Concurrent.sleep duration)
     nowTime <- Deli Concurrent.now
-    let !finished = FinishedJob (Concurrent.subtractTime nowTime start)
-        fun s = s |> finished
-    Deli (lift (modify' fun))
+    let !sojourn = Concurrent.subtractTime nowTime start
+        modifier s = s & numProcessed +~ 1
+                       & sojournStatistics %~ TDigest.insert (realToFrac sojourn)
+                       & perfectStatistics %~ TDigest.insert (realToFrac duration)
+    Deli $ modify' modifier
 
 simulate
     :: StdGen
     -> [Job]
     -> (Concurrent.Channel Job -> Deli Job ())
-    -> [FinishedJob]
+    -> DeliState
 simulate gen jobs process =
     runDeli gen $ do
         mainChan <- Deli (Concurrent.newChannel Nothing)
@@ -123,4 +146,3 @@ simulate gen jobs process =
             scheduled = [(_jobStart job, insertQueue job) | job <- jobs]
         Deli (Concurrent.lazySchedule scheduled)
         process mainChan
-

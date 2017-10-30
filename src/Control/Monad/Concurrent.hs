@@ -1,12 +1,18 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Control.Monad.Concurrent
     ( Channel
-    , Time
+    , Time(..)
     , Duration
     , ConcurrentT
     , addDuration
+    , microsecond
+    , millisecond
+    , millisecondsToDuration
     , subtractTime
     , fork
     , sleep
@@ -77,7 +83,7 @@ newtype Time = Time DiffTime
     deriving (Show, Eq, Ord, Num, Enum)
 
 newtype Duration = Duration DiffTime
-    deriving (Show, Eq, Ord, Num, Enum)
+    deriving (Show, Eq, Ord, Num, Real, Enum)
 
 addDuration
     :: Time
@@ -85,6 +91,18 @@ addDuration
     -> Time
 addDuration (Time t) (Duration d) =
     Time (t + d)
+
+microsecond :: Duration
+microsecond = Duration (picosecondsToDiffTime 1000000)
+
+millisecond :: Duration
+millisecond = microsecond * 1000
+
+millisecondsToDuration
+    :: Integer
+    -> Duration
+millisecondsToDuration millis =
+    Duration $ picosecondsToDiffTime (1000000 * 1000 * millis)
 
 subtractTime
     :: Time
@@ -133,6 +151,13 @@ newtype ConcurrentT chanState m a =
     ConcurrentT
         { runConcurrentT' :: IConcurrentT chanState m a
         } deriving (Functor, Applicative, Monad, MonadIO)
+
+instance MonadState s m => MonadState s (ConcurrentT chanState m) where
+    get = lift get
+
+    put = lift . put
+
+    state = lift . state
 
 instance MonadTrans (ConcurrentT chanState) where
     lift = ConcurrentT . IConcurrentT . lift . lift
@@ -437,5 +462,3 @@ runIConcurrentT routine =
     in
     void $ flip evalStateT freshState $ evalContT resetAction
 
-microsecond :: Duration
-microsecond = Duration (picosecondsToDiffTime 1000000)

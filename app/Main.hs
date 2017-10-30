@@ -1,17 +1,19 @@
+{-# LANGUAGE BangPatterns #-}
+
 module Main where
 
 import Control.Monad (forM_, replicateM_, when, forever, void)
 import Control.Monad.Deli
 import Control.Monad.Trans (liftIO)
+import Data.TDigest
 import System.Random
 import qualified Control.Monad.Concurrent as Concurrent
+import Data.Time (picosecondsToDiffTime)
+
+import Data.Random
 
 main :: IO ()
 main = queueExample
---    concurrentExample
---    let n = 10 * 1000 * 1000
---    Concurrent.runConcurrentT (replicateM_ n (return ()))
---    evalContT (replicateM_ n (return ()))
 
 concurrentExample :: IO ()
 concurrentExample =
@@ -30,109 +32,35 @@ concurrentExample =
                     _ <- Concurrent.readChannel chan
                     Concurrent.sleep 1
 
+randomNormalDurations :: StdGen -> [Duration]
+randomNormalDurations gen =
+    let (!val, newGen) = sampleState (normal 0.5 0.1) gen
+    in (doubleToDuration val : randomNormalDurations newGen )
+
+doubleToDuration :: Double -> Duration
+doubleToDuration x =
+    millisecondsToDuration (round (x * 1000))
+
 queueExample :: IO ()
 queueExample = do
     gen <- newStdGen
-    let jobs = [Job x 10 | x <- [0,10..(10 * 1000 * 1000) - 1]]
+    let durations = randomNormalDurations gen
+        zero = 0
+        five = 5 * Time (picosecondsToDiffTime (1000 * 1000000))
+        starts = [zero,five..(60 * 60) - 1]
+    let jobs = zipWith Job starts durations
         action queue =
+            replicateM_ 90 $
+                fork $
                     forever $ readChannel queue >>= runJob
         res = simulate gen jobs action
-    print (length res)
+    putStrLn "Simulated:"
+    print (quantile 0.99 (_sojournStatistics res))
+    print (quantile 0.95 (_sojournStatistics res))
+    print (quantile 0.75 (_sojournStatistics res))
+    print (quantile 0.5 (_sojournStatistics res))
 
-examples :: IO ()
-examples = do
-    putStrLn "example:"
-    example
-    putStr "\n"
+    putStrLn "Perfect:"
 
-    putStrLn "example2:"
-    example2
-    putStr "\n"
-
-    putStrLn "example3:"
-    example3
-    putStr "\n"
-
-    putStrLn "example4:"
-    example4
-    putStr "\n"
-
-    putStrLn "example5"
-    example5
-    putStr "\n"
-
-    putStrLn "example6:"
-    example6
-    putStr "\n"
-
-    putStrLn "example7:"
-    example7
-    putStr "\n"
-
-printN
-    :: Concurrent.Duration
-    -> Concurrent.ConcurrentT chanState IO ()
-printN time = do
-    Concurrent.sleep time
-    liftIO (print time)
-
-example :: IO ()
-example = Concurrent.runConcurrentT $ do
-    Concurrent.fork $ printN 3
-    Concurrent.fork $ printN 4
-    replicateM_ 5 (printN 1)
-    printN 10
-
-example2 :: IO ()
-example2 = Concurrent.runConcurrentT $ do
-    liftIO (print 5)
-    liftIO (print 5)
-    Concurrent.sleep 2
-    liftIO (print 4)
-    liftIO (print 4)
-    Concurrent.fork (liftIO (print 1))
-
-example3 :: IO ()
-example3 = Concurrent.runConcurrentT $ do
-    chan <- Concurrent.newChannel (Just 1)
-    liftIO (putStrLn "created a channel")
-    Concurrent.fork $ do
-        liftIO (putStrLn "in the forked process")
-        Concurrent.writeChannel chan True
-    liftIO (putStrLn "right before reading")
-    val <- Concurrent.readChannel chan
-    liftIO (print val)
-
-example4 :: IO ()
-example4 = Concurrent.runConcurrentT $ do
-    chanA <- Concurrent.newChannel (Just 1)
-    chanB <- Concurrent.newChannel (Just 1)
-    Concurrent.fork $ do
-        val <- Concurrent.readChannel chanA
-        Concurrent.writeChannel chanB val
-
-    Concurrent.writeChannel chanA True
-    val <- Concurrent.readChannel chanB
-    liftIO (print val)
-
-example5 :: IO ()
-example5 = Concurrent.runConcurrentT $ do
-    Concurrent.now >>= liftIO . print
-    Concurrent.sleep 2
-    when True $ Concurrent.sleep 2
-    Concurrent.now >>= liftIO . print
-
-example6 :: IO ()
-example6 = Concurrent.runConcurrentT $ do
-    chanA <- Concurrent.newChannel (Just 1)
-    Concurrent.writeChannel chanA (1 :: Int)
-    Concurrent.writeChannel chanA (2 :: Int)
-
-example7 :: IO ()
-example7 = Concurrent.runConcurrentT $ do
-    chanA <- Concurrent.newChannel Nothing
-    Concurrent.writeChannel chanA (1 :: Int)
-    Concurrent.writeChannel chanA (2 :: Int)
-
-    Concurrent.readChannel chanA >>= liftIO . print
-    Concurrent.readChannel chanA >>= liftIO . print
+    print (quantile 0.5 (_perfectStatistics res))
+    print (_numProcessed res)
