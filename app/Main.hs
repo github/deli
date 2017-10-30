@@ -50,7 +50,7 @@ queueExample = do
         starts = [zero,five..(60 * 60) - 1]
     let jobs = zipWith Job starts durations
         action queue =
-            replicateM_ 90 $
+            replicateM_ 256 $
                 fork $
                     forever $ readChannel queue >>= runJob
         res = simulate gen jobs action
@@ -63,4 +63,5 @@ queueExample = do
     putStrLn "Perfect:"
 
     print (quantile 0.5 (_perfectStatistics res))
+    print (quantile 0.99 (_perfectStatistics res))
     print (_numProcessed res)
