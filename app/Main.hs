@@ -36,7 +36,7 @@ concurrentExample =
 
 randomNormalDurations :: StdGen -> [Duration]
 randomNormalDurations gen =
-    let (!val, newGen) = sampleState (normal 0.5 0.4) gen
+    let (!val, newGen) = sampleState (normal 0.55 0.4) gen
     in (doubleToDuration val : randomNormalDurations newGen )
 
 doubleToDuration :: Double -> Duration
@@ -50,19 +50,40 @@ uQuantile
 uQuantile q digest =
     fromJust (quantile q digest)
 
+simpleAction queue = do
+        fork $ forever $ do
+            job <- readChannel queue
+            runJob job
+        fork $ forever $ do
+            job <- readChannel queue
+            runJob job
+
+simpleQueueExample :: IO ()
+simpleQueueExample = do
+    gen <- newStdGen
+    let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.2, 1.2, 1.2]
+        times = [0,0.5..(10000-1)]
+        jobs = zipWith Job times durations
+        res = simulate gen jobs simpleAction
+    printResults res
+
 queueExample :: IO ()
 queueExample = do
     gen <- newStdGen
     let durations = randomNormalDurations gen
         zero = 0
-        five = 5 * Time (picosecondsToDiffTime (1000 * 1000000))
-        starts = [zero,five..(60 * 60) - 1]
+        two = 2 * Time (picosecondsToDiffTime (1000 * 1000000))
+        starts = [zero,two..(60 * 60) - 1]
     let jobs = zipWith Job starts durations
         action queue =
-            replicateM_ 103 $
+            replicateM_ 512 $
                 fork $
                     forever $ readChannel queue >>= runJob
         res = simulate gen jobs action
+    printResults res
+
+printResults :: DeliState -> IO ()
+printResults res = do
     putStrLn "Simulated:"
 
     putStrLn $ "simulated 99th: " ++ show (uQuantile 0.99 (_sojournStatistics res))

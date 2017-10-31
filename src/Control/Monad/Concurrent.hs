@@ -80,7 +80,7 @@ data ChanAndWaiters chanState m = ChanAndWaiters
     }
 
 newtype Time = Time DiffTime
-    deriving (Show, Eq, Ord, Num, Enum)
+    deriving (Show, Eq, Ord, Num, Fractional, Enum)
 
 newtype Duration = Duration DiffTime
     deriving (Show, Eq, Ord, Num, Fractional, Real, Enum)
