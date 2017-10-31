@@ -28,7 +28,7 @@ module Control.Monad.Deli
     ) where
 
 import Control.Lens (makeLenses, use, (%~), (+~), (.~), (^.))
---import Control.Monad.Random.Strict
+import Control.Monad.Random.Strict
 import Control.Monad.State.Strict (State, execState, modify')
 import Data.Function ((&))
 import Data.Map.Strict
@@ -82,17 +82,17 @@ freshState =
 
 newtype Deli chanState a =
     Deli
-        { _getDeli :: Concurrent.ConcurrentT chanState (State DeliState) a
+        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (State DeliState)) a
         } deriving (Functor, Applicative, Monad)
 
---instance MonadRandom (Deli chanState) where
---    getRandomR range = getRandomR range >>= Deli . pure
---
---    getRandom = getRandom >>= Deli . pure
---
---    getRandomRs range = getRandomRs range >>= Deli . pure
---
---    getRandoms = getRandoms >>= Deli . pure
+instance MonadRandom (Deli chanState) where
+    getRandomR range = getRandomR range >>= Deli . pure
+
+    getRandom = getRandom >>= Deli . pure
+
+    getRandomRs range = getRandomRs range >>= Deli . pure
+
+    getRandoms = getRandoms >>= Deli . pure
 
 ------------------------------------------------------------------------------
 -- ## Wrappers around the Control.Monad.Concurrent API
@@ -155,9 +155,9 @@ runDeli
     :: StdGen
     -> Deli chanState ()
     -> DeliState
-runDeli _gen (Deli conc) =
-    --let !randomAction = Concurrent.runConcurrentT conc
-    let !writerAction = Concurrent.runConcurrentT conc
+runDeli gen (Deli conc) =
+    let !randomAction = Concurrent.runConcurrentT conc
+        !writerAction = evalRandT randomAction gen
         !res = execState writerAction freshState
     in res
 
