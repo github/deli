@@ -7,6 +7,7 @@
 module Control.Monad.Deli
     ( Deli
     , Job(..)
+    , TimesliceStats(..)
     , DeliState(..)
     -- re-exported from Control.Monad.Concurrent
     , Concurrent.Time(..)
@@ -26,36 +27,57 @@ module Control.Monad.Deli
     , simulate
     ) where
 
-import Control.Lens (makeLenses, (%~), (+~))
+import Control.Lens (makeLenses, use, (%~), (+~), (.~), (^.))
 --import Control.Monad.Random.Strict
 import Control.Monad.State.Strict (State, execState, modify')
 import Data.Function ((&))
-import Data.TDigest (TDigest, tdigest)
+import Data.Map.Strict
+import Data.Maybe (fromJust)
+import Data.TDigest (TDigest, tdigest, quantile)
+import Data.Time
 import System.Random (StdGen)
 import qualified Control.Monad.Concurrent as Concurrent
 import qualified Data.TDigest as TDigest
-
-import Debug.Trace
 
 data Job = Job
     { _jobStart :: !Concurrent.Time
     , _jobDuration :: !Concurrent.Duration
     } deriving (Show, Eq, Ord)
 
-newtype FinishedJob = FinishedJob
-    { _jobSojourn :: Concurrent.Duration
+data FinishedJob = FinishedJob
+    { _jobFinishTime :: Concurrent.Time
+    , _jobSojourn :: Concurrent.Duration
     } deriving (Show, Eq, Ord)
+
+data TimesliceStats = TimesliceStats
+    {
+    -- inclusive
+      _sliceStart :: Concurrent.Time
+    , _response50 :: Concurrent.Duration
+    , _response99 :: Concurrent.Duration
+    } deriving (Show)
 
 data DeliState = DeliState
     { _sojournStatistics :: !(TDigest 10)
     , _perfectStatistics :: !(TDigest 10)
+    , _temporalStats :: !(Map Concurrent.Time TimesliceStats)
+    , _currentMinute :: !Concurrent.Time
+    , _currentDigest :: !(TDigest 10)
     , _numProcessed :: !Integer
     } deriving (Show)
 
 makeLenses ''DeliState
 
 freshState :: DeliState
-freshState = DeliState emptyDigest emptyDigest 0
+freshState =
+    DeliState
+        { _sojournStatistics = emptyDigest
+        , _perfectStatistics = emptyDigest
+        , _temporalStats = Data.Map.Strict.empty
+        , _currentMinute = 0
+        , _currentDigest = emptyDigest
+        , _numProcessed = 0
+        }
     where emptyDigest = tdigest []
 
 newtype Deli chanState a =
@@ -109,7 +131,24 @@ readChannel
 readChannel = Deli . Concurrent.readChannel
 
 ------------------------------------------------------------------------------
---
+-- ## Time Conversion
+------------------------------------------------------------------------------
+
+-- Round down a `Concurrent.Time' to the nearest minute
+clampMinutes
+    :: Concurrent.Time
+    -> Concurrent.Time
+clampMinutes (Concurrent.Time t) =
+    let picosPerMinute = 60000000000000
+        inPicos = diffTimeToPicoseconds t
+        toMinute = inPicos `quot` picosPerMinute
+    in Concurrent.Time (picosecondsToDiffTime (toMinute * picosPerMinute))
+
+doubleToDuration :: Double -> Concurrent.Duration
+doubleToDuration = fromRational . toRational
+
+------------------------------------------------------------------------------
+-- ## Simulation
 ------------------------------------------------------------------------------
 
 runDeli
@@ -133,6 +172,37 @@ runJob (Job start duration) = do
                        & sojournStatistics %~ TDigest.insert (realToFrac sojourn)
                        & perfectStatistics %~ TDigest.insert (realToFrac duration)
     Deli $ modify' modifier
+    updateTemporalStats (FinishedJob nowTime sojourn)
+
+updateTemporalStats
+    :: FinishedJob
+    -> Deli chanState ()
+updateTemporalStats (FinishedJob endTime sojourn) = do
+    let clampedEnd = clampMinutes endTime
+    currentSlice <- Deli $ use currentMinute
+    if currentSlice == clampedEnd
+    then do
+        let modifier s =
+                s & currentDigest %~ TDigest.insert (realToFrac sojourn)
+        Deli $ modify' modifier
+    else do
+        let modifier s =
+                s & currentMinute .~ clampedEnd
+                  & currentDigest .~ TDigest.singleton (realToFrac sojourn)
+                  & temporalStats %~ Data.Map.Strict.insert currentSlice (digestToTimeSlice currentSlice (s ^. currentDigest))
+        Deli $ modify' modifier
+
+
+digestToTimeSlice
+    :: Concurrent.Time
+    -> TDigest compression
+    -> TimesliceStats
+digestToTimeSlice minute stats =
+    TimesliceStats
+        { _sliceStart = minute
+        , _response50 = doubleToDuration (fromJust (quantile 0.5 stats))
+        , _response99 = doubleToDuration (fromJust (quantile 0.99 stats))
+        }
 
 simulate
     :: StdGen

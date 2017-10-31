@@ -37,8 +37,9 @@ executable deli-exe
   main-is:             Main.hs
   ghc-options:         -O1
   build-depends:       base
-                     , mtl
+                     , containers
                      , deli
+                     , mtl
                      , random
                      , random-fu
                      , tdigest

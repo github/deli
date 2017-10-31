@@ -9,6 +9,8 @@ import Data.TDigest
 import System.Random
 import qualified Control.Monad.Concurrent as Concurrent
 import Data.Time (picosecondsToDiffTime)
+import Data.Maybe (fromJust)
+import Data.Map.Strict
 
 import Data.Random
 
@@ -34,12 +36,19 @@ concurrentExample =
 
 randomNormalDurations :: StdGen -> [Duration]
 randomNormalDurations gen =
-    let (!val, newGen) = sampleState (normal 0.5 0.1) gen
+    let (!val, newGen) = sampleState (normal 0.5 0.4) gen
     in (doubleToDuration val : randomNormalDurations newGen )
 
 doubleToDuration :: Double -> Duration
 doubleToDuration x =
     millisecondsToDuration (round (x * 1000))
+
+uQuantile
+    :: Double
+    -> TDigest comp
+    -> Double
+uQuantile q digest =
+    fromJust (quantile q digest)
 
 queueExample :: IO ()
 queueExample = do
@@ -50,18 +59,29 @@ queueExample = do
         starts = [zero,five..(60 * 60) - 1]
     let jobs = zipWith Job starts durations
         action queue =
-            replicateM_ 256 $
+            replicateM_ 103 $
                 fork $
                     forever $ readChannel queue >>= runJob
         res = simulate gen jobs action
     putStrLn "Simulated:"
-    print (quantile 0.99 (_sojournStatistics res))
-    print (quantile 0.95 (_sojournStatistics res))
-    print (quantile 0.75 (_sojournStatistics res))
-    print (quantile 0.5 (_sojournStatistics res))
+
+    putStrLn $ "simulated 99th: " ++ show (uQuantile 0.99 (_sojournStatistics res))
+    putStrLn $ "simulated 95th: " ++ show (uQuantile 0.95 (_sojournStatistics res))
+    putStrLn $ "simulated 75th: " ++ show (uQuantile 0.75 (_sojournStatistics res))
+    putStrLn $ "simulated 50th: " ++ show (uQuantile 0.50 (_sojournStatistics res))
+    putStrLn ""
 
     putStrLn "Perfect:"
 
-    print (quantile 0.5 (_perfectStatistics res))
-    print (quantile 0.99 (_perfectStatistics res))
-    print (_numProcessed res)
+    putStrLn $ "perfect 99th: " ++ show (uQuantile 0.99 (_perfectStatistics res))
+    putStrLn $ "perfect 50th: " ++ show (uQuantile 0.5 (_perfectStatistics res))
+    putStrLn ""
+
+    putStrLn "Overall processing:"
+    putStrLn $ "total number processed: " ++ show (_numProcessed res)
+
+    let values = [1000 * fromRational (toRational (_response50 v)) | (_, v) <- Data.Map.Strict.toAscList (_temporalStats res)] :: [Double]
+    forM_ values $ \val -> do
+        putStr (show val)
+        putStr " "
+    putStrLn "\n"

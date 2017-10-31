@@ -7,7 +7,7 @@
 module Control.Monad.Concurrent
     ( Channel
     , Time(..)
-    , Duration
+    , Duration(..)
     , ConcurrentT
     , addDuration
     , microsecond
@@ -83,7 +83,7 @@ newtype Time = Time DiffTime
     deriving (Show, Eq, Ord, Num, Enum)
 
 newtype Duration = Duration DiffTime
-    deriving (Show, Eq, Ord, Num, Real, Enum)
+    deriving (Show, Eq, Ord, Num, Fractional, Real, Enum)
 
 addDuration
     :: Time
