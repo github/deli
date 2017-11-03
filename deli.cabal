@@ -40,11 +40,13 @@ executable deli-exe
                      , containers
                      , deli
                      , mtl
+                     , parallel
                      , random
                      , random-fu
                      , tdigest
                      , time
   default-language:    Haskell2010
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N2
 
 test-suite deli-test
   type:                exitcode-stdio-1.0

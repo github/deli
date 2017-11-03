@@ -13,6 +13,7 @@ module Control.Monad.Deli
     , Concurrent.Time(..)
     , Concurrent.Duration
     , Concurrent.Channel
+    , Concurrent.addDuration
     , Concurrent.microsecond
     , Concurrent.millisecond
     , Concurrent.millisecondsToDuration
@@ -22,6 +23,7 @@ module Control.Monad.Deli
     , newChannel
     , writeChannel
     , readChannel
+    , readChannelNonblocking
     , runDeli
     , runJob
     , simulate
@@ -129,6 +131,11 @@ readChannel
     :: Concurrent.Channel chanState
     -> Deli chanState chanState
 readChannel = Deli . Concurrent.readChannel
+
+readChannelNonblocking
+    :: Concurrent.Channel chanState
+    -> Deli chanState (Maybe chanState)
+readChannelNonblocking = Deli . Concurrent.readChannelNonblocking
 
 ------------------------------------------------------------------------------
 -- ## Time Conversion

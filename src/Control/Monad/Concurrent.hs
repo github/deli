@@ -23,6 +23,7 @@ module Control.Monad.Concurrent
     , newChannel
     , writeChannel
     , readChannel
+    , readChannelNonblocking
     , runConcurrentT
     ) where
 
@@ -258,7 +259,7 @@ isleep
     :: Monad m
     => Duration
     -> IConcurrentT chanState m ()
-isleep duration = do
+isleep duration =
     register (ischeduleDuration duration)
 
 yield
@@ -399,7 +400,7 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
     let readerView = join $ (readQueue . _readers) <$> Data.Map.Strict.lookup chan chanMap2
     case readerView of
         -- there are no readers
-        Nothing -> do
+        Nothing ->
             return ()
         -- there is a reader, call the reader
         Just (nextReader, newReaders) -> do
@@ -444,6 +445,37 @@ ireadChannel chan = do
                     nextWriter
                     return val
 
+readChannelNonblocking
+    :: Monad m
+    => Channel chanState
+    -> ConcurrentT chanState m (Maybe chanState)
+readChannelNonblocking = ConcurrentT . ireadChannelNonblocking
+
+ireadChannelNonblocking
+    :: Monad m
+    => Channel chanState
+    -> IConcurrentT chanState m (Maybe chanState)
+ireadChannelNonblocking chan = do
+    chanMap <- use channels
+    let mChanContents = fromMaybe EmptyL $ chanMap ^? (ix chan . contents . to viewl)
+
+    case mChanContents of
+        EmptyL -> return Nothing
+        val :< newSeq -> do
+            -- write the new seq
+            channels . ix chan . contents .= newSeq
+
+            -- see if there are any writers
+            chanMap2 <- use channels
+            let writerView = join $ (readQueue . _writers) <$> Data.Map.Strict.lookup chan chanMap2
+            case writerView of
+                Nothing ->
+                    return (Just val)
+                Just (nextWriter, newWriters) -> do
+                    channels . ix chan . writers .= newWriters
+                    nextWriter
+                    return (Just val)
+
 runConcurrentT
     :: Monad m
     => ConcurrentT chanState m ()
@@ -457,7 +489,7 @@ runIConcurrentT
     -> m ()
 runIConcurrentT routine =
     let resetAction = do
-            (resetT (runIConcurrentT' routine))
+            resetT (runIConcurrentT' routine)
             runIConcurrentT' dequeue
     in
     void $ flip evalStateT freshState $ evalContT resetAction
