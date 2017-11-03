@@ -27,10 +27,12 @@ module Deli
     , now
     , newChannel
     , writeChannel
+    , writeChannelNonblocking
     , readChannel
     , readChannelNonblocking
     , runDeli
     , runJob
+    , priority
     , simulate
     ) where
 
@@ -145,6 +147,13 @@ writeChannel
 writeChannel chan item =
     Deli (Concurrent.writeChannel chan item)
 
+writeChannelNonblocking
+    :: Concurrent.Channel chanState
+    -> chanState
+    -> Deli chanState (Maybe chanState)
+writeChannelNonblocking chan item =
+    Deli (Concurrent.writeChannelNonblocking chan item)
+
 readChannel
     :: Concurrent.Channel chanState
     -> Deli chanState chanState
@@ -203,6 +212,20 @@ runJob j = do
                        & perfectStatistics %~ TDigest.insert (realToFrac duration)
     Deli $ modify' modifier
     updateTemporalStats (FinishedJob nowTime waitTime)
+
+priority
+    :: HasJobTiming j
+    => Concurrent.Time
+    -> j
+    -> Concurrent.Duration
+priority time j =
+    let (JobTiming start duration) = j ^. jobTiming
+        numerator = Concurrent.subtractTime time start + duration
+        denominator = duration
+    in
+        if denominator == 0
+        then 0
+        else numerator / denominator
 
 updateTemporalStats
     :: FinishedJob

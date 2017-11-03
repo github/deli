@@ -4,6 +4,7 @@ module Deli.Webhooks
     ) where
 
 import Control.Lens (to)
+import Data.List (intercalate)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Deli
 
@@ -48,6 +49,7 @@ rowToWebhookDelivery [startS, _, durationS, hostS] =
         , _wdDuration = Deli.millisecondsToDuration durationI
         , _wdHost = hostS
         }
+rowToWebhookDelivery row = error $ "Row has the wrong number of columns: " ++ intercalate "," row
 
 zeroTimes
     :: [WebhookDelivery]

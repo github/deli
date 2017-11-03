@@ -24,6 +24,7 @@ module Control.Monad.Concurrent
     , now
     , newChannel
     , writeChannel
+    , writeChannelNonblocking
     , readChannel
     , readChannelNonblocking
     , runConcurrentT
@@ -434,6 +435,48 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
         Just ((readerId, nextReader), newReaders) -> do
             channels . ix chan . readers .= newReaders
             local (const readerId) nextReader
+
+writeChannelNonblocking
+    :: Monad m
+    => Channel chanState
+    -> chanState
+    -> ConcurrentT chanState m (Maybe chanState)
+writeChannelNonblocking chan item =
+    ConcurrentT (iwriteChannelNonblocking chan item)
+
+iwriteChannelNonblocking
+    :: Monad m
+    => Channel chanState
+    -> chanState
+    -> IConcurrentT chanState m (Maybe chanState)
+iwriteChannelNonblocking chan@(Channel _ident mMaxSize) item = do
+    chanMap <- use channels
+    myId <- ithreadId
+    let chanContents = chanMap ^? (ix chan . contents)
+        chanCurrentSize = maybe 0 Data.Sequence.length chanContents
+
+    -- when there's already an element, we block and wait our turn to write
+    -- once the queue is empty/writable
+    case mMaxSize of
+        Just maxSize | chanCurrentSize >= maxSize ->
+            return Nothing
+        _ -> do
+            -- write the value to the queue
+            channels . ix chan . contents %= (|> item)
+
+            chanMap2 <- use channels
+            let readerView = join $ (readQueue . _readers) <$> Data.Map.Strict.lookup chan chanMap2
+            case readerView of
+                -- there are no readers
+                Nothing ->
+                    return (Just item)
+                -- there is a reader, call the reader
+                Just ((readerId, nextReader), newReaders) -> do
+                    channels . ix chan . readers .= newReaders
+                    --local (const readerId) nextReader
+                    ischeduleDuration 0 readerId nextReader
+                    register (ischeduleDuration 0 myId)
+                    return (Just item)
 
 readChannel
     :: Monad m

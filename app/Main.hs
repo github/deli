@@ -2,10 +2,11 @@
 
 module Main where
 
-import Control.Monad (forM_, replicateM_, when, forever, void)
+import Control.Monad (forM_, replicateM_, replicateM, when, forever, unless, void)
+import Control.Monad.Loops (unfoldM)
 import Control.Monad.Trans (liftIO)
 import Control.Parallel
-import Data.List (scanl')
+import Data.List (foldl', insertBy, sortOn, scanl')
 import Data.Maybe (fromJust, catMaybes)
 import Data.Random
 import Data.Random.Distribution.Exponential (exponential)
@@ -18,7 +19,7 @@ import qualified Control.Monad.Concurrent as Concurrent
 import qualified Data.Map.Strict as Map
 
 main :: IO ()
-main = webhooksExample
+main = simpleQueueExample
 
 threadIdExample :: IO ()
 threadIdExample = Concurrent.runConcurrentT $ do
@@ -100,16 +101,16 @@ simpleAction num queue =
 simpleQueueExample :: IO ()
 simpleQueueExample = do
     gen <- newStdGen
-    let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.201]
+    let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.2]
         times = [0,1..(100000-1)]
         jobs = zipWith JobTiming times durations
-        res = simulate gen jobs (simpleAction 2)
+        res = simulate gen jobs (simpleAction 1)
     printResults res
 
 webhooks queue = do
     slowQueue <- newChannel Nothing
     fastQueue <- newChannel Nothing
-    replicateM_ 82 $
+    replicateM_ 80 $
         fork $
             forever $
                 readChannel fastQueue >>= runJob
@@ -148,16 +149,17 @@ webhooksExample = do
     let durations = sampleDistribution webhooksDistribution mtGen
         randomTimeDurations = max 0 <$> sampleDistribution (exponential 0.005) mtGen
         starts = scanl' addDuration 0 randomTimeDurations
-    let jobs = takeWhile (\x -> _jobStart x < (60 * 60 * 1)) $ zipWith JobTiming starts durations
-        resA = simulate gen jobs (simpleAction 142)
+    let jobs = takeWhile (\x -> _jobStart x < (60 * 60 * 24)) $ zipWith JobTiming starts durations
+        resA = simulate gen jobs (simpleAction 140)
         resB = simulate gen jobs webhooks
-    putStrLn "## Naive Implementation"
-    printResults (par resB resA)
-    putStrLn ""
 
-    putStrLn "## Hi/Low Implementation"
+    putStrLn "## Simple"
+    printResults (par resB resA)
+    putStrLn "\n"
+
+    putStrLn "## Hi/Low"
     printResults resB
-    putStrLn ""
+    putStrLn "\n"
 
 printResults :: DeliState -> IO ()
 printResults res = do
