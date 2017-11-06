@@ -17,6 +17,41 @@ import Data.Random
 main :: IO ()
 main = queueExample
 
+threadIdExample :: IO ()
+threadIdExample = Concurrent.runConcurrentT $ do
+    chan <- Concurrent.newChannel (Just 1)
+    mainId <- Concurrent.threadId
+    liftIO $ putStrLn $ "main Id is " ++ show mainId
+    Concurrent.fork $ do
+        secondId <- Concurrent.threadId
+        liftIO $ putStrLn $ "second Id is " ++ show secondId
+        Concurrent.sleep 5
+        secondId' <- Concurrent.threadId
+        liftIO $ putStrLn $ "second Id after sleep is " ++ show secondId'
+        _ <- Concurrent.readChannel chan
+        secondId'' <- Concurrent.threadId
+        liftIO $ putStrLn $ "second Id after channel read is " ++ show secondId''
+    Concurrent.fork $ do
+        thirdId <- Concurrent.threadId
+        liftIO $ putStrLn $ "third Id is " ++ show thirdId
+        Concurrent.sleep 1
+        thirdId' <- Concurrent.threadId
+        liftIO $ putStrLn $ "third Id after sleep is " ++ show thirdId'
+        _ <- Concurrent.readChannel chan
+        thirdId'' <- Concurrent.threadId
+        liftIO $ putStrLn $ "third Id after channel read is " ++ show thirdId''
+
+    Concurrent.sleep 6
+    mainId' <- Concurrent.threadId
+    liftIO $ putStrLn $ "main Id after sleep is " ++ show mainId'
+
+    Concurrent.writeChannel chan ()
+    Concurrent.writeChannel chan ()
+
+    mainId'' <- Concurrent.threadId
+    liftIO $ putStrLn $ "main Id after channel writes is " ++ show mainId''
+
+
 concurrentExample :: IO ()
 concurrentExample =
     Concurrent.runConcurrentT $ do

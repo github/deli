@@ -13,10 +13,12 @@ module Control.Monad.Deli
     , Concurrent.Time(..)
     , Concurrent.Duration
     , Concurrent.Channel
+    , Concurrent.ThreadId
     , Concurrent.microsecond
     , Concurrent.millisecond
     , Concurrent.millisecondsToDuration
     , fork
+    , threadId
     , sleep
     , now
     , newChannel
@@ -103,6 +105,11 @@ fork
     -> Deli chanState ()
 fork (Deli conc) =
     Deli $ Concurrent.fork conc
+
+threadId
+    :: Deli chanState Concurrent.ThreadId
+threadId =
+    Deli Concurrent.threadId
 
 sleep
     :: Concurrent.Duration

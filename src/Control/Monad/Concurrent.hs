@@ -8,6 +8,7 @@ module Control.Monad.Concurrent
     ( Channel
     , Time(..)
     , Duration(..)
+    , ThreadId
     , ConcurrentT
     , addDuration
     , microsecond
@@ -15,9 +16,9 @@ module Control.Monad.Concurrent
     , millisecondsToDuration
     , subtractTime
     , fork
+    , threadId
     , sleep
     , yield
-    , schedule
     , lazySchedule
     , now
     , newChannel
@@ -28,6 +29,7 @@ module Control.Monad.Concurrent
 
 import Control.Lens (at, ix, makeLenses, to, use, (^?), (.=), (+=), (%=), (?~))
 import Control.Monad.State.Strict
+import Control.Monad.Reader (MonadReader, ReaderT, ask, local, runReaderT)
 import Control.Monad.Trans.Cont (ContT, evalContT, resetT, shiftT)
 import Data.Map.Strict
 import Data.Maybe
@@ -75,8 +77,8 @@ data Channel a = Channel
 
 data ChanAndWaiters chanState m = ChanAndWaiters
     { _contents :: !(Seq chanState)
-    , _readers :: Queue (IConcurrentT chanState m ())
-    , _writers :: Queue (IConcurrentT chanState m ())
+    , _readers :: Queue (ThreadId, IConcurrentT chanState m ())
+    , _writers :: Queue (ThreadId, IConcurrentT chanState m ())
     }
 
 newtype Time = Time DiffTime
@@ -84,6 +86,9 @@ newtype Time = Time DiffTime
 
 newtype Duration = Duration DiffTime
     deriving (Show, Eq, Ord, Num, Fractional, Real, Enum)
+
+newtype ThreadId = ThreadId Integer
+    deriving (Show, Eq, Ord)
 
 addDuration
     :: Time
@@ -113,13 +118,15 @@ subtractTime (Time end) (Time start) =
 
 data PriorityCoroutine chanState m = PriorityCoroutine
     { _routine :: IConcurrentT chanState m ()
+    , _pId :: !ThreadId
     , _priority :: !Time
     }
 
 instance Eq (PriorityCoroutine chanState m)
-    where (==) a b =  _priority a == _priority b
+    where (==) a b =  (_priority a, _pId a) == (_priority b, _pId b)
 
 instance Ord (PriorityCoroutine chanState m)
+    -- NOTE: should this incorporate the threadId?
     where compare a b = compare (_priority a) (_priority b)
 
 type CoroutineQueue chanState m = MinQueue (PriorityCoroutine chanState m)
@@ -127,6 +134,7 @@ type CoroutineQueue chanState m = MinQueue (PriorityCoroutine chanState m)
 data ConcurrentState chanState m = ConcurrentState
     { _coroutines :: !(CoroutineQueue chanState m)
     , _scheduledRoutines :: [(Time, IConcurrentT chanState m ())]
+    , _nextThreadIdent :: !ThreadId
     , _channels :: !(Map (Channel chanState) (ChanAndWaiters chanState m))
     , _nextChannelIdent :: !Integer
     , _nowTime :: !Time
@@ -134,8 +142,8 @@ data ConcurrentState chanState m = ConcurrentState
 
 newtype IConcurrentT chanState m a =
     IConcurrentT
-        { runIConcurrentT' :: ContT () (StateT (ConcurrentState chanState m) m) a
-        } deriving (Functor, Monad, MonadIO, MonadState (ConcurrentState chanState m))
+        { runIConcurrentT' :: ContT () (ReaderT ThreadId (StateT (ConcurrentState chanState m) m)) a
+        } deriving (Functor, Monad, MonadIO, MonadReader ThreadId, MonadState (ConcurrentState chanState m))
 
 instance Applicative (IConcurrentT chanState m) where
     pure = IConcurrentT . pure
@@ -145,7 +153,7 @@ instance Applicative (IConcurrentT chanState m) where
     (IConcurrentT a) *> (IConcurrentT b) = IConcurrentT $ a >>= const b
 
 instance MonadTrans (IConcurrentT chanState) where
-    lift = IConcurrentT . lift . lift
+    lift = IConcurrentT . lift . lift . lift
 
 newtype ConcurrentT chanState m a =
     ConcurrentT
@@ -160,7 +168,7 @@ instance MonadState s m => MonadState s (ConcurrentT chanState m) where
     state = lift . state
 
 instance MonadTrans (ConcurrentT chanState) where
-    lift = ConcurrentT . IConcurrentT . lift . lift
+    lift = ConcurrentT . IConcurrentT . lift . lift . lift
 
 -- For some reason I had to put these together underneath the definition
 -- of `IConcurrentT'
@@ -173,6 +181,9 @@ freshState
 freshState = ConcurrentState
     { _coroutines = PQueue.empty
     , _scheduledRoutines = []
+    -- 1 because we `runReaderT' with 0 for the main thread,
+    -- which is already created
+    , _nextThreadIdent = ThreadId 1
     , _channels = Data.Map.Strict.empty
     , _nextChannelIdent = 0
     , _nowTime = 0
@@ -216,22 +227,22 @@ dequeue = do
     case (mMin, scheduled) of
         (Nothing, []) ->
             return ()
-        (Just (PriorityCoroutine nextCoroutine priority, modifiedQueue), []) -> do
+        (Just (PriorityCoroutine nextCoroutine pId priority, modifiedQueue), []) -> do
             putCCs modifiedQueue
             updateNow priority
-            IConcurrentT (resetT (runIConcurrentT' nextCoroutine))
+            IConcurrentT (resetT (runIConcurrentT' (local (const pId) nextCoroutine)))
             dequeue
         (Nothing, (priority, nextCoroutine): tl) -> do
             scheduledRoutines .= tl
             updateNow priority
             IConcurrentT (resetT (runIConcurrentT' nextCoroutine))
             dequeue
-        (Just (PriorityCoroutine nextCoroutineQ priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
+        (Just (PriorityCoroutine nextCoroutineQ pId priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
             if priorityL <= priorityQ
             then do
                 scheduledRoutines .= tl
                 updateNow priorityL
-                IConcurrentT (resetT (runIConcurrentT' nextCoroutineL))
+                IConcurrentT (resetT (runIConcurrentT' (local (const pId) nextCoroutineL)))
                 dequeue
             else do
                 putCCs modifiedQueue
@@ -242,11 +253,12 @@ dequeue = do
 ischeduleDuration
     :: Monad m
     => Duration
+    -> ThreadId
     -> IConcurrentT chanState m ()
     -> IConcurrentT chanState m ()
-ischeduleDuration duration routine = do
+ischeduleDuration duration pId routine = do
     currentNow <- inow
-    ischedule (addDuration currentNow duration) routine
+    ischedule (addDuration currentNow duration) pId routine
 
 sleep
     :: Monad m
@@ -259,7 +271,8 @@ isleep
     => Duration
     -> IConcurrentT chanState m ()
 isleep duration = do
-    register (ischeduleDuration duration)
+    myId <- ithreadId
+    register (ischeduleDuration duration myId)
 
 yield
     :: Monad m
@@ -273,14 +286,6 @@ iyield =
     -- rather than implementing a separate queue/seq for yield'ers, we actually
     -- do want to advance our clock as we yield, simulating CPU cycles
     isleep microsecond
-
-schedule
-    :: Monad m
-    => Time
-    -> ConcurrentT chanState m ()
-    -> ConcurrentT chanState m ()
-schedule time (ConcurrentT f) = ConcurrentT $
-    ischedule time f
 
 lazySchedule
     :: Monad m
@@ -300,9 +305,10 @@ ilazySchedule scheduled =
 ischedule
     :: Monad m
     => Time
+    -> ThreadId
     -> IConcurrentT chanState m ()
     -> IConcurrentT chanState m ()
-ischedule time routine = do
+ischedule time pId routine = do
     currentRoutines <- getCCs
     currentNow <- inow
     -- to prevent time from moving backward by scheduling something in the
@@ -310,7 +316,7 @@ ischedule time routine = do
     -- time. Effectively this immediately schedules the process if it were
     -- to otherwise have been scheduled for the past.
     let scheduleTime = max time currentNow
-        newRoutines = insertBehind (PriorityCoroutine routine scheduleTime) currentRoutines
+        newRoutines = insertBehind (PriorityCoroutine routine pId scheduleTime) currentRoutines
     putCCs newRoutines
 
 now
@@ -335,8 +341,21 @@ ifork
     => IConcurrentT chanState m ()
     -> IConcurrentT chanState m ()
 ifork routine = do
-    ischeduleDuration 0 routine
-    register (ischeduleDuration 0)
+    tId@(ThreadId i) <- use nextThreadIdent
+    nextThreadIdent .= (ThreadId (i + 1))
+    ischeduleDuration 0 tId routine
+    myId <- ithreadId
+    register (ischeduleDuration 0 myId)
+
+threadId
+    :: Monad m
+    => ConcurrentT chanState m ThreadId
+threadId = ConcurrentT ithreadId
+
+ithreadId
+    :: Monad m
+    => IConcurrentT chanState m ThreadId
+ithreadId = ask
 
 newChannel
     :: Monad m
@@ -378,12 +397,14 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
     let chanContents = chanMap ^? (ix chan . contents)
         chanCurrentSize = maybe 0 Data.Sequence.length chanContents
 
+    myId <- ithreadId
+
     -- when there's already an element, we block and wait our turn to write
     -- once the queue is empty/writable
     case mMaxSize of
         Just maxSize | chanCurrentSize >= maxSize ->
             register $ \routine ->
-                channels . ix chan . writers %= flip writeQueue routine
+                channels . ix chan . writers %= flip writeQueue (myId, routine)
         _ ->
             return ()
 
@@ -402,9 +423,9 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
         Nothing -> do
             return ()
         -- there is a reader, call the reader
-        Just (nextReader, newReaders) -> do
+        Just ((readerId, nextReader), newReaders) -> do
             channels . ix chan . readers .= newReaders
-            nextReader
+            local (const readerId) nextReader
 
 readChannel
     :: Monad m
@@ -420,11 +441,13 @@ ireadChannel chan = do
     chanMap <- use channels
     let mChanContents = fromMaybe EmptyL $ chanMap ^? (ix chan . contents . to viewl)
 
+    myId <- ithreadId
+
     case mChanContents of
         EmptyL -> do
             -- nothing to read, so we add ourselves to the queue
             register $ \routine ->
-                channels . ix chan . readers %= flip writeQueue routine
+                channels . ix chan . readers %= flip writeQueue (myId, routine)
             -- we can actually just recur here to read the value, since now
             -- that we're running again, the queue will have a value for us to
             -- read
@@ -439,9 +462,9 @@ ireadChannel chan = do
             case writerView of
                 Nothing ->
                     return val
-                Just (nextWriter, newWriters) -> do
+                Just ((writerId, nextWriter), newWriters) -> do
                     channels . ix chan . writers .= newWriters
-                    nextWriter
+                    local (const writerId) nextWriter
                     return val
 
 runConcurrentT
@@ -460,5 +483,5 @@ runIConcurrentT routine =
             (resetT (runIConcurrentT' routine))
             runIConcurrentT' dequeue
     in
-    void $ flip evalStateT freshState $ evalContT resetAction
+    void $ flip evalStateT freshState $ flip runReaderT (ThreadId 0) $ evalContT resetAction
 
