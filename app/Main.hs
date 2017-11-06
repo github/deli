@@ -15,6 +15,7 @@ import qualified Data.Map.Strict as Map
 
 import Control.Parallel
 import Data.Random
+import Data.Random.Source.PureMT
 import Data.Random.Distribution.Exponential (exponential)
 
 main :: IO ()
@@ -39,7 +40,7 @@ concurrentExample =
 
 sampleDistribution
     :: RVar Double
-    -> StdGen
+    -> PureMT
     -> [Duration]
 sampleDistribution dist gen =
     let (!val, newGen) = sampleState dist gen
@@ -54,7 +55,7 @@ uQuantile
     -> TDigest comp
     -> Double
 uQuantile q digest =
-    fromJust (quantile q digest)
+    1000 * fromJust (quantile q digest)
 
 simpleAction num queue =
      replicateM_ num $
@@ -66,7 +67,7 @@ simpleQueueExample :: IO ()
 simpleQueueExample = do
     gen <- newStdGen
     let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.2]
-        times = [0,1..(1000-1)]
+        times = [0,1..(10000-1)]
         jobs = zipWith Job times durations
         res = simulate gen jobs (simpleAction 1)
     printResults res
@@ -104,34 +105,34 @@ webhooksDistribution = do
     n <- uniformT 0 (1 :: Double)
     if n < 0.9901
     then exponential 0.4
-    else return 30
+    else uniform 28 30
 
 webhooksExample :: IO ()
 webhooksExample = do
     gen <- newStdGen
-    let durations = sampleDistribution webhooksDistribution gen
-        randomTimeDurations = max 0 <$> sampleDistribution (exponential 0.005) gen
+    mtGen <- newPureMT
+    let durations = sampleDistribution webhooksDistribution mtGen
+        randomTimeDurations = max 0 <$> sampleDistribution (exponential 0.005) mtGen
         starts = scanl' addDuration 0 randomTimeDurations
     let jobs = takeWhile (\x -> _jobStart x < (60 * 60 * 48)) $ zipWith Job starts durations
         resA = simulate gen jobs (simpleAction 142)
         resB = simulate gen jobs webhooks
+    putStrLn "## Naive Implementation"
     printResults (par resB resA)
+    putStrLn ""
+
+    putStrLn "## Hi/Low Implementation"
     printResults resB
+    putStrLn ""
 
 printResults :: DeliState -> IO ()
 printResults res = do
-    putStrLn "Simulated:"
+    putStrLn "Simulated wait (milliseconds):"
 
-    putStrLn $ "simulated 99th: " ++ show (uQuantile 0.99 (_sojournStatistics res))
-    putStrLn $ "simulated 95th: " ++ show (uQuantile 0.95 (_sojournStatistics res))
-    putStrLn $ "simulated 75th: " ++ show (uQuantile 0.75 (_sojournStatistics res))
-    putStrLn $ "simulated 50th: " ++ show (uQuantile 0.50 (_sojournStatistics res))
-    putStrLn ""
-
-    putStrLn "Perfect:"
-
-    putStrLn $ "perfect 99th: " ++ show (uQuantile 0.99 (_perfectStatistics res))
-    putStrLn $ "perfect 50th: " ++ show (uQuantile 0.5 (_perfectStatistics res))
+    putStrLn $ "simulated 99th: " ++ show (uQuantile 0.99 (_waitStatistics res))
+    putStrLn $ "simulated 95th: " ++ show (uQuantile 0.95 (_waitStatistics res))
+    putStrLn $ "simulated 75th: " ++ show (uQuantile 0.75 (_waitStatistics res))
+    putStrLn $ "simulated 50th: " ++ show (uQuantile 0.50 (_waitStatistics res))
     putStrLn ""
 
     putStrLn "Overall processing:"

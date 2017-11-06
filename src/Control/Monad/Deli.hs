@@ -48,7 +48,7 @@ data Job = Job
 
 data FinishedJob = FinishedJob
     { _jobFinishTime :: Concurrent.Time
-    , _jobSojourn :: Concurrent.Duration
+    , _jobWait :: Concurrent.Duration
     } deriving (Show, Eq, Ord)
 
 data TimesliceStats = TimesliceStats
@@ -62,6 +62,7 @@ data TimesliceStats = TimesliceStats
 data DeliState = DeliState
     { _sojournStatistics :: !(TDigest 10)
     , _perfectStatistics :: !(TDigest 10)
+    , _waitStatistics    :: !(TDigest 10)
     , _temporalStats :: !(Map Concurrent.Time TimesliceStats)
     , _currentMinute :: !Concurrent.Time
     , _currentDigest :: !(TDigest 10)
@@ -75,6 +76,7 @@ freshState =
     DeliState
         { _sojournStatistics = emptyDigest
         , _perfectStatistics = emptyDigest
+        , _waitStatistics = emptyDigest
         , _temporalStats = Data.Map.Strict.empty
         , _currentMinute = 0
         , _currentDigest = emptyDigest
@@ -172,14 +174,17 @@ runJob
     :: Job
     -> Deli chanState ()
 runJob (Job start duration) = do
+    beforeJob <- Deli Concurrent.now
     Deli (Concurrent.sleep duration)
     nowTime <- Deli Concurrent.now
     let !sojourn = Concurrent.subtractTime nowTime start
+        !waitTime = Concurrent.subtractTime beforeJob start
         modifier s = s & numProcessed +~ 1
                        & sojournStatistics %~ TDigest.insert (realToFrac sojourn)
+                       & waitStatistics %~ TDigest.insert (realToFrac waitTime)
                        & perfectStatistics %~ TDigest.insert (realToFrac duration)
     Deli $ modify' modifier
-    updateTemporalStats (FinishedJob nowTime sojourn)
+    updateTemporalStats (FinishedJob nowTime waitTime)
 
 updateTemporalStats
     :: FinishedJob
