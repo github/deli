@@ -4,7 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Control.Monad.Deli
+module Deli
     ( Deli
     , HasJobTiming(..)
     , JobTiming(..)

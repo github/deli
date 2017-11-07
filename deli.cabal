@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Control.Monad.Concurrent
-                     , Control.Monad.Deli
+                     , Deli
   build-depends:       base >= 4.7 && < 5
                      , MonadRandom
                      , containers
@@ -37,6 +37,7 @@ executable deli-exe
   main-is:             Main.hs
   ghc-options:         -O1
   build-depends:       base
+                     , bytestring
                      , containers
                      , deli
                      , mtl

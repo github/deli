@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Monad (forM_, replicateM_, when, forever, void)
-import Control.Monad.Deli
+import Deli
 import Control.Monad.Trans (liftIO)
 import Data.TDigest
 import System.Random
