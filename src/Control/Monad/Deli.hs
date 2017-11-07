@@ -6,7 +6,8 @@
 
 module Control.Monad.Deli
     ( Deli
-    , Job(..)
+    , HasJobTiming(..)
+    , JobTiming(..)
     , TimesliceStats(..)
     , DeliState(..)
     -- re-exported from Control.Monad.Concurrent
@@ -29,7 +30,7 @@ module Control.Monad.Deli
     , simulate
     ) where
 
-import Control.Lens (makeLenses, use, (%~), (+~), (.~), (^.))
+import Control.Lens (Getter, makeLenses, to, use, (%~), (+~), (.~), (^.))
 import Control.Monad.Random.Strict
 import Control.Monad.State.Strict (State, execState, modify')
 import Data.Function ((&))
@@ -41,10 +42,16 @@ import System.Random (StdGen)
 import qualified Control.Monad.Concurrent as Concurrent
 import qualified Data.TDigest as TDigest
 
-data Job = Job
+data JobTiming = JobTiming
     { _jobStart :: !Concurrent.Time
     , _jobDuration :: !Concurrent.Duration
     } deriving (Show, Eq, Ord)
+
+class HasJobTiming a where
+    jobTiming :: Getter a JobTiming
+
+instance HasJobTiming JobTiming where
+    jobTiming = to id
 
 data FinishedJob = FinishedJob
     { _jobFinishTime :: Concurrent.Time
@@ -169,9 +176,11 @@ runDeli gen (Deli conc) =
     in res
 
 runJob
-    :: Job
+    :: HasJobTiming j
+    => j
     -> Deli chanState ()
-runJob (Job start duration) = do
+runJob j = do
+    let (JobTiming start duration) = j ^. jobTiming
     Deli (Concurrent.sleep duration)
     nowTime <- Deli Concurrent.now
     let !sojourn = Concurrent.subtractTime nowTime start
@@ -212,14 +221,15 @@ digestToTimeSlice minute stats =
         }
 
 simulate
-    :: StdGen
-    -> [Job]
-    -> (Concurrent.Channel Job -> Deli Job ())
+    :: HasJobTiming j
+    => StdGen
+    -> [j]
+    -> (Concurrent.Channel j -> Deli j ())
     -> DeliState
 simulate gen jobs process =
     runDeli gen $ do
         mainChan <- Deli (Concurrent.newChannel Nothing)
         let insertQueue = Concurrent.writeChannel mainChan
-            scheduled = [(_jobStart job, insertQueue job) | job <- jobs]
+            scheduled = [(_jobStart (job ^. jobTiming), insertQueue job) | job <- jobs]
         Deli (Concurrent.lazySchedule scheduled)
         process mainChan

@@ -92,7 +92,7 @@ queueExample = do
         zero = 0
         five = 5 * Time (picosecondsToDiffTime (1000 * 1000000))
         starts = [zero,five..(60 * 60) - 1]
-    let jobs = zipWith Job starts durations
+    let jobs = zipWith JobTiming starts durations
         action queue =
             replicateM_ 103 $
                 fork $
