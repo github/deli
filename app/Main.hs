@@ -66,10 +66,10 @@ simpleAction num queue =
 simpleQueueExample :: IO ()
 simpleQueueExample = do
     gen <- newStdGen
-    let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.2]
-        times = [0,1..(10000-1)]
+    let durations = cycle [0.8, 0.9, 1.0, 1.1, 1.201]
+        times = [0,1..(100000-1)]
         jobs = zipWith Job times durations
-        res = simulate gen jobs (simpleAction 1)
+        res = simulate gen jobs (simpleAction 2)
     printResults res
 
 webhooks queue = do
@@ -105,7 +105,7 @@ webhooksDistribution = do
     n <- uniformT 0 (1 :: Double)
     if n < 0.9901
     then exponential 0.4
-    else uniform 28 30
+    else return 30
 
 webhooksExample :: IO ()
 webhooksExample = do
@@ -114,7 +114,7 @@ webhooksExample = do
     let durations = sampleDistribution webhooksDistribution mtGen
         randomTimeDurations = max 0 <$> sampleDistribution (exponential 0.005) mtGen
         starts = scanl' addDuration 0 randomTimeDurations
-    let jobs = takeWhile (\x -> _jobStart x < (60 * 60 * 48)) $ zipWith Job starts durations
+    let jobs = takeWhile (\x -> _jobStart x < (60 * 60 * 1)) $ zipWith Job starts durations
         resA = simulate gen jobs (simpleAction 142)
         resB = simulate gen jobs webhooks
     putStrLn "## Naive Implementation"
@@ -133,6 +133,14 @@ printResults res = do
     putStrLn $ "simulated 95th: " ++ show (uQuantile 0.95 (_waitStatistics res))
     putStrLn $ "simulated 75th: " ++ show (uQuantile 0.75 (_waitStatistics res))
     putStrLn $ "simulated 50th: " ++ show (uQuantile 0.50 (_waitStatistics res))
+    putStrLn ""
+
+    putStrLn "Simulated sojourn (milliseconds):"
+
+    putStrLn $ "simulated 99th: " ++ show (uQuantile 0.99 (_sojournStatistics res))
+    putStrLn $ "simulated 95th: " ++ show (uQuantile 0.95 (_sojournStatistics res))
+    putStrLn $ "simulated 75th: " ++ show (uQuantile 0.75 (_sojournStatistics res))
+    putStrLn $ "simulated 50th: " ++ show (uQuantile 0.50 (_sojournStatistics res))
     putStrLn ""
 
     putStrLn "Overall processing:"
