@@ -12,12 +12,14 @@ module Deli
     , DeliState(..)
     -- re-exported from Control.Monad.Concurrent
     , Concurrent.Time(..)
-    , Concurrent.Duration
+    , Concurrent.Duration(..)
     , Concurrent.Channel
     , Concurrent.ThreadId
     , Concurrent.microsecond
     , Concurrent.millisecond
     , Concurrent.millisecondsToDuration
+    , Concurrent.millisecondsToTime
+    , Concurrent.subtractTime
     , fork
     , threadId
     , sleep

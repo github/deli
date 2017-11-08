@@ -14,6 +14,7 @@ module Control.Monad.Concurrent
     , microsecond
     , millisecond
     , millisecondsToDuration
+    , millisecondsToTime
     , subtractTime
     , fork
     , threadId
@@ -102,6 +103,12 @@ microsecond = Duration (picosecondsToDiffTime 1000000)
 
 millisecond :: Duration
 millisecond = microsecond * 1000
+
+millisecondsToTime
+    :: Integer
+    -> Time
+millisecondsToTime millis =
+    Time $ picosecondsToDiffTime (1000000 * 1000 * millis)
 
 millisecondsToDuration
     :: Integer

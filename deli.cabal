@@ -17,8 +17,10 @@ library
   hs-source-dirs:      src
   exposed-modules:     Control.Monad.Concurrent
                      , Deli
+                     , Deli.Webhooks
   build-depends:       base >= 4.7 && < 5
                      , MonadRandom
+                     , bytestring
                      , containers
                      , dlist
                      , lens
@@ -35,6 +37,21 @@ library
 executable deli-exe
   hs-source-dirs:      app
   main-is:             Main.hs
+  ghc-options:         -O1
+  build-depends:       base
+                     , bytestring
+                     , containers
+                     , deli
+                     , mtl
+                     , random
+                     , random-fu
+                     , tdigest
+                     , time
+  default-language:    Haskell2010
+
+executable webhooks
+  hs-source-dirs:      app
+  main-is:             Webhooks.hs
   ghc-options:         -O1
   build-depends:       base
                      , bytestring
