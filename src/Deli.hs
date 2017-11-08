@@ -15,6 +15,7 @@ module Deli
     , Concurrent.Duration(..)
     , Concurrent.Channel
     , Concurrent.ThreadId
+    , Concurrent.addDuration
     , Concurrent.microsecond
     , Concurrent.millisecond
     , Concurrent.millisecondsToDuration
@@ -27,6 +28,7 @@ module Deli
     , newChannel
     , writeChannel
     , readChannel
+    , readChannelNonblocking
     , runDeli
     , runJob
     , simulate
@@ -57,7 +59,7 @@ instance HasJobTiming JobTiming where
 
 data FinishedJob = FinishedJob
     { _jobFinishTime :: Concurrent.Time
-    , _jobSojourn :: Concurrent.Duration
+    , _jobWait :: Concurrent.Duration
     } deriving (Show, Eq, Ord)
 
 data TimesliceStats = TimesliceStats
@@ -71,6 +73,7 @@ data TimesliceStats = TimesliceStats
 data DeliState = DeliState
     { _sojournStatistics :: !(TDigest 10)
     , _perfectStatistics :: !(TDigest 10)
+    , _waitStatistics    :: !(TDigest 10)
     , _temporalStats :: !(Map Concurrent.Time TimesliceStats)
     , _currentMinute :: !Concurrent.Time
     , _currentDigest :: !(TDigest 10)
@@ -84,6 +87,7 @@ freshState =
     DeliState
         { _sojournStatistics = emptyDigest
         , _perfectStatistics = emptyDigest
+        , _waitStatistics = emptyDigest
         , _temporalStats = Data.Map.Strict.empty
         , _currentMinute = 0
         , _currentDigest = emptyDigest
@@ -146,6 +150,11 @@ readChannel
     -> Deli chanState chanState
 readChannel = Deli . Concurrent.readChannel
 
+readChannelNonblocking
+    :: Concurrent.Channel chanState
+    -> Deli chanState (Maybe chanState)
+readChannelNonblocking = Deli . Concurrent.readChannelNonblocking
+
 ------------------------------------------------------------------------------
 -- ## Time Conversion
 ------------------------------------------------------------------------------
@@ -183,14 +192,17 @@ runJob
     -> Deli chanState ()
 runJob j = do
     let (JobTiming start duration) = j ^. jobTiming
+    beforeJob <- Deli Concurrent.now
     Deli (Concurrent.sleep duration)
     nowTime <- Deli Concurrent.now
     let !sojourn = Concurrent.subtractTime nowTime start
+        !waitTime = Concurrent.subtractTime beforeJob start
         modifier s = s & numProcessed +~ 1
                        & sojournStatistics %~ TDigest.insert (realToFrac sojourn)
+                       & waitStatistics %~ TDigest.insert (realToFrac waitTime)
                        & perfectStatistics %~ TDigest.insert (realToFrac duration)
     Deli $ modify' modifier
-    updateTemporalStats (FinishedJob nowTime sojourn)
+    updateTemporalStats (FinishedJob nowTime waitTime)
 
 updateTemporalStats
     :: FinishedJob
