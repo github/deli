@@ -2,13 +2,13 @@ name:                deli
 version:             0.1.0.0
 -- synopsis:
 -- description:
-homepage:            https://github.com/githubuser/deli#readme
-license:             BSD3
+homepage:            https://github.com/github/deli
+license:             MIT
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2017 Author name here
-category:            Web
+author:              Reid Draper
+maintainer:          opensource+deli@github.com
+copyright:           2019 GitHub
+category:            Simulation
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
@@ -83,4 +83,4 @@ test-suite deli-test
 
 source-repository head
   type:     git
-  location: https://github.com/githubuser/deli
+  location: https://github.com/github/deli
