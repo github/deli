@@ -2,42 +2,29 @@
 
 ## What is Deli?
 
-Deli is a tool for modeling and improving software systems that use queues.
-After modeling a system with Deli, input is simulated, and you're given
-statistics about performance and utilization.
+Deli is a performance modeling tool, allowing you to understand and experiment
+with new designs at several orders of magnitude faster than wall-clock time.
+Specifically, Deli is designed to help you understand how long it takes for
+'jobs' or 'requests' to complete in your system. Deli borrows concepts and
+terminology from [queueing
+theory](https://en.wikipedia.org/wiki/Queueing_theory), and is implemented as a
+Haskell DSL, exposing a [Go (language)](https://golang.org/) -like concurrency
+and message-passing API.
 
-For example, let's say you have a distributed system that sends several classes
-of jobs through the same queue, with a fixed set of workers. You begin
-experiences problems with slow jobs exhausting all of the workers, and
-increasing response times for quick jobs. You would model this system using
-Deli's Haskell DSL, and then be able to make predictions about proposed
-solutions.
+Deli's documentation is divided into the following three sections, depending on
+your interest.
 
+## First time readers
 
-## Why was this built?
+If you're looking for an overview on Deli, and whether it may be appropriate
+for your problem, head over to our [overview documentation](docs/overview.md).
 
-Deli was built to explore improvements to GitHub's webhook infrastructure,
-where the HTTP response time distribution can vary dramatically when a single
-popular webhook target is unavailable.
+## Using Deli
 
-## How does it work?
+If you've decided you want to use Deli, or are already using it in a project,
+then our [user guide](docs/user-guide.md) is a great resource.
 
-Deli is a Haskell library and DSL, implemented as a [discrete event
-simulation](https://en.wikipedia.org/wiki/Discrete_event_simulation). It
-presents a
-[CSP](https://en.wikipedia.org/wiki/Communicating_sequential_processes)
-concurrency API which is used to model systems.
+## Contributing
 
-## Why shouldn't you use it?
-
-* It may take longer to learn to use Deli than to fix your problem another way
-* Uses Deli requires a small but existant knowledge of Haskell
-* Using Deli doesn't obviate the need to understand basic statistics and the
-  distribution of your input data
-* Deli currently is light on documentation
-
----
-
-```
-stack build && stack exec deli-exe
-```
+If you'd like to contribute to Deli, start with our [contributing
+documentation](docs/contributing.md).
