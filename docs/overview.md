@@ -21,7 +21,7 @@ Before digging in further, let's start with why you *should not* use Deli.
 ## Why shouldn't you use Deli?
 
 * It may take longer to learn to use Deli than to fix your problem another way
-* Uses Deli requires a small but existant knowledge of the Haskell programming
+* Uses Deli requires a small but existent knowledge of the Haskell programming
   language
 * Using Deli doesn't obviate the need to understand basic statistics and the
   distribution of your input data
@@ -44,4 +44,4 @@ concurrency API which is used to model systems.
 ## What next?
 
 If you'd like to start using Deli, head over to our [user
-guide](docs/user-guide.md).
+guide](user-guide.md).
