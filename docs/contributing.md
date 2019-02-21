@@ -9,7 +9,7 @@ help is essential for keeping it great.
 
 Contributions to this project are
 [released](https://help.github.com/articles/github-terms-of-service/#6-contributions-under-repository-license)
-to the public under the [BSD3](/LICENSE.md).
+to the public under the [BSD3](/LICENSE).
 
 Please note that this project is released with a [Contributor Code of
 Conduct][code-of-conduct]. By participating in this project you agree to abide
