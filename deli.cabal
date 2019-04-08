@@ -1,0 +1,70 @@
+name:                deli
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/github/deli
+license:             BSD3
+license-file:        LICENSE
+author:              Reid Draper
+maintainer:          opensource+deli@github.com
+copyright:           2019 GitHub
+category:            Simulation
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Control.Monad.Concurrent
+                     , Deli
+                     , Deli.Printer
+                     , Deli.Random
+  build-depends:       base >= 4.7 && < 5
+                     , MonadRandom
+                     , bytestring
+                     , containers
+                     , dlist
+                     , lens
+                     , mtl
+                     , pqueue
+                     , random
+                     , random-fu
+                     , random-source
+                     , tdigest
+                     , time
+                     , transformers
+  default-language:    Haskell2010
+  ghc-options: -Wall
+
+executable tutorial
+  hs-source-dirs:      app
+  main-is:             Tutorial.lhs
+  ghc-options:         -O1
+  build-depends:       base
+                     , bytestring
+                     , containers
+                     , deli
+                     , mtl
+                     , parallel
+                     , lens
+                     , monad-loops
+                     , random
+                     , random-fu
+                     , random-source
+                     , tdigest
+                     , time
+  default-language:    Haskell2010
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O1
+
+test-suite deli-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  build-depends:       base
+                     , deli
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/github/deli
