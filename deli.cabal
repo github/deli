@@ -19,13 +19,15 @@ library
                      , Deli
                      , Deli.Printer
                      , Deli.Random
-  build-depends:       base >= 4.7 && < 5
+  build-depends:       base
                      , MonadRandom
                      , bytestring
                      , containers
                      , dlist
                      , lens
+                     , monad-loops
                      , mtl
+                     , mtl-c
                      , pqueue
                      , random
                      , random-fu
@@ -33,8 +35,9 @@ library
                      , tdigest
                      , time
                      , transformers
+                     , strict
   default-language:    Haskell2010
-  ghc-options: -Wall
+  ghc-options: -Wall -O2
 
 executable tutorial
   hs-source-dirs:      app
@@ -62,8 +65,32 @@ executable performance
   build-depends:       base
                      , deli
                      , random
-  ghc-options:         -rtsopts
+  ghc-options:         -rtsopts -O2
   default-language:    Haskell2010
+
+executable load-balancer
+  hs-source-dirs:      app
+  main-is:             LoadBalancer.hs
+  ghc-options:         -O1
+  build-depends:       base
+                     , MonadRandom
+                     , bytestring
+                     , containers
+                     , deli
+                     , deepseq
+                     , lens
+                     , monad-loops
+                     , mtl
+                     , parallel
+                     , pqueue
+                     , random
+                     , random-fu
+                     , random-source
+                     , tdigest
+                     , time
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2
+
 
 source-repository head
   type:     git
