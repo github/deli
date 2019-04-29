@@ -15,9 +15,9 @@ First, let's begin with our imports:
 \begin{code}
 module Main where
 
-import Control.Lens (to)
 import Control.Monad (replicateM_, forever)
 import Data.Random.Source.PureMT (newPureMT)
+import Data.Typeable (Typeable)
 import Deli (Channel, Deli, JobTiming(..))
 import Deli.Printer (printResults)
 import System.Random
@@ -35,7 +35,7 @@ item in serial:
 \begin{code}
 singleQueue
     :: Channel JobTiming
-    -> Deli JobTiming ()
+    -> Deli ()
 singleQueue queue =
     forever $ do
         job <- Deli.readChannel queue
@@ -94,10 +94,10 @@ Next, let's see what happens if we add more workers:
 
 \begin{code}
 variableWorkers
-    :: Deli.HasJobTiming jobType
+    :: (Deli.HasJobTiming jobType, Typeable jobType)
     => Int
     -> Channel jobType
-    -> Deli jobType ()
+    -> Deli ()
 variableWorkers num queue =
      replicateM_ num $
         Deli.fork $ forever $ do
@@ -155,12 +155,12 @@ Now let's create our two systems whose performance we want to compare.
 \begin{code}
 twentyWorkers
     :: Channel JobTiming
-    -> Deli JobTiming ()
+    -> Deli ()
 twentyWorkers = variableWorkers 20
 
 partitionedQueues
     :: Channel JobTiming
-    -> Deli JobTiming ()
+    -> Deli ()
 partitionedQueues jobChannel = do
     -- We'll read work from the main queue, and then partition
     -- it into either the slow or fast queue.

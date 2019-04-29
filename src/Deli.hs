@@ -46,6 +46,7 @@ import Data.Map.Strict
 import Data.Maybe (fromJust)
 import Data.TDigest (TDigest, tdigest, quantile)
 import Data.Time
+import Data.Typeable (Typeable)
 import System.Random (StdGen)
 import qualified Control.Monad.Concurrent as Concurrent
 import qualified Data.TDigest as TDigest
@@ -53,7 +54,7 @@ import qualified Data.TDigest as TDigest
 data JobTiming = JobTiming
     { _jobStart :: !Concurrent.Time
     , _jobDuration :: !Concurrent.Duration
-    } deriving (Show, Eq, Ord)
+    } deriving (Show, Eq, Ord, Typeable)
 
 class HasJobTiming a where
     jobTiming :: Getter a JobTiming
@@ -99,12 +100,12 @@ freshState =
         }
     where emptyDigest = tdigest []
 
-newtype Deli chanState a =
+newtype Deli a =
     Deli
-        { _getDeli :: Concurrent.ConcurrentT chanState (RandT StdGen (State DeliState)) a
+        { _getDeli :: Concurrent.ConcurrentT (RandT StdGen (State DeliState)) a
         } deriving (Functor, Applicative, Monad)
 
-instance MonadRandom (Deli chanState) where
+instance MonadRandom Deli where
     getRandomR range = Deli $ lift (getRandomR range)
 
     getRandom = Deli $ lift getRandom
@@ -118,52 +119,56 @@ instance MonadRandom (Deli chanState) where
 ------------------------------------------------------------------------------
 
 fork
-    :: Deli chanState ()
-    -> Deli chanState ()
+    :: Deli ()
+    -> Deli ()
 fork (Deli conc) =
     Deli $ Concurrent.fork conc
 
 threadId
-    :: Deli chanState Concurrent.ThreadId
+    :: Deli Concurrent.ThreadId
 threadId =
     Deli Concurrent.threadId
 
 sleep
     :: Concurrent.Duration
-    -> Deli chanState ()
+    -> Deli ()
 sleep = Deli . Concurrent.sleep
 
 now
-    :: Deli chanState Concurrent.Time
+    :: Deli Concurrent.Time
 now = Deli Concurrent.now
 
 newChannel
     :: Maybe Int
-    -> Deli chanState (Concurrent.Channel chanState)
+    -> Deli (Concurrent.Channel chanState)
 newChannel = Deli . Concurrent.newChannel
 
 writeChannel
-    :: Concurrent.Channel chanState
+    :: Typeable chanState
+    => Concurrent.Channel chanState
     -> chanState
-    -> Deli chanState ()
+    -> Deli ()
 writeChannel chan item =
     Deli (Concurrent.writeChannel chan item)
 
 writeChannelNonblocking
-    :: Concurrent.Channel chanState
+    :: Typeable chanState
+    => Concurrent.Channel chanState
     -> chanState
-    -> Deli chanState (Maybe chanState)
+    -> Deli (Maybe chanState)
 writeChannelNonblocking chan item =
     Deli (Concurrent.writeChannelNonblocking chan item)
 
 readChannel
-    :: Concurrent.Channel chanState
-    -> Deli chanState chanState
+    :: Typeable chanState
+    => Concurrent.Channel chanState
+    -> Deli chanState
 readChannel = Deli . Concurrent.readChannel
 
 readChannelNonblocking
-    :: Concurrent.Channel chanState
-    -> Deli chanState (Maybe chanState)
+    :: Typeable chanState
+    => Concurrent.Channel chanState
+    -> Deli (Maybe chanState)
 readChannelNonblocking = Deli . Concurrent.readChannelNonblocking
 
 ------------------------------------------------------------------------------
@@ -189,7 +194,7 @@ doubleToDuration = fromRational . toRational
 
 runDeli
     :: StdGen
-    -> Deli chanState ()
+    -> Deli ()
     -> DeliState
 runDeli gen (Deli conc) =
     let !randomAction = Concurrent.runConcurrentT conc
@@ -200,7 +205,7 @@ runDeli gen (Deli conc) =
 runJob
     :: HasJobTiming j
     => j
-    -> Deli chanState ()
+    -> Deli ()
 runJob j = do
     let (JobTiming start duration) = j ^. jobTiming
     beforeJob <- Deli Concurrent.now
@@ -231,7 +236,7 @@ priority time j =
 
 updateTemporalStats
     :: FinishedJob
-    -> Deli chanState ()
+    -> Deli ()
 updateTemporalStats (FinishedJob endTime sojourn) = do
     let clampedEnd = clampMinutes endTime
     currentSlice <- Deli $ use currentMinute
@@ -260,10 +265,10 @@ digestToTimeSlice minute stats =
         }
 
 simulate
-    :: HasJobTiming j
+    :: (HasJobTiming j, Typeable j)
     => StdGen
     -> [j]
-    -> (Concurrent.Channel j -> Deli j ())
+    -> (Concurrent.Channel j -> Deli ())
     -> DeliState
 simulate gen jobs process =
     runDeli gen $ do
