@@ -105,13 +105,13 @@ newtype Deli chanState a =
         } deriving (Functor, Applicative, Monad)
 
 instance MonadRandom (Deli chanState) where
-    getRandomR range = getRandomR range >>= Deli . pure
+    getRandomR range = Deli $ lift (getRandomR range)
 
-    getRandom = getRandom >>= Deli . pure
+    getRandom = Deli $ lift getRandom
 
-    getRandomRs range = getRandomRs range >>= Deli . pure
+    getRandomRs range = Deli $ lift (getRandomRs range)
 
-    getRandoms = getRandoms >>= Deli . pure
+    getRandoms = Deli $ lift getRandoms
 
 ------------------------------------------------------------------------------
 -- ## Wrappers around the Control.Monad.Concurrent API
