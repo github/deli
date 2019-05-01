@@ -83,7 +83,6 @@ executable load-balancer
                      , random
                      , random-fu
                      , random-source
-                     , sorted-list
                      , tdigest
                      , time
   default-language:    Haskell2010

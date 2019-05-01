@@ -4,13 +4,11 @@ module Main where
 
 import Control.DeepSeq
 import Debug.Trace (traceM)
-import Data.Maybe (fromJust)
 import Control.Monad (replicateM, forM_, forever)
 import Control.Monad.Random.Class (getRandomR)
 import Data.Coerce (coerce)
 import Data.Random.Source.PureMT (newPureMT)
 import qualified Data.PQueue.Prio.Min as PQueue
-import qualified Data.SortedList as SList
 import Deli (Channel, Deli, JobTiming(..))
 import Deli.Printer (printResults)
 import System.Random
@@ -58,19 +56,19 @@ leastWorkLeft
     -> Deli JobTiming ()
 leastWorkLeft num jobChannel = do
     chans :: [Channel JobTiming] <- replicateM num createWorker
-    let workQueue :: SList.SortedList (Deli.Duration, Deli.Channel JobTiming)
-        --workQueue = PQueue.fromList [(0 :: Deli.Duration, c) | c <- chans]
-        workQueue = SList.toSortedList [(0 :: Deli.Duration, c) | c <- chans]
-        mFun lastTime nowTime (k, v) = (max 0 (k - coerce (nowTime - lastTime)), v)
-        loop :: SList.SortedList (Deli.Duration, Deli.Channel JobTiming) -> Deli.Time -> Deli JobTiming ()
+    let workQueue :: PQueue.MinPQueue Deli.Duration (Deli.Channel JobTiming)
+        workQueue = PQueue.fromList [(0 :: Deli.Duration, c) | c <- chans]
+        mFun lastTime nowTime k = max 0 (k - coerce (nowTime - lastTime))
+        loop :: PQueue.MinPQueue Deli.Duration (Deli.Channel JobTiming) -> Deli.Time -> Deli JobTiming ()
         loop prevQueue prevTime = do
             job <- Deli.readChannel jobChannel
             newTime <- Deli.now
-            let !adjustedQueue = SList.map (mFun prevTime newTime) prevQueue
-                ((shortestPrevDuration, shortestQueue), deletedMin) = fromJust $ SList.uncons adjustedQueue
-                !addedBack = SList.insert (shortestPrevDuration + _jobDuration job, shortestQueue) deletedMin
+            let !adjustedQueue = PQueue.mapKeysMonotonic (mFun prevTime newTime) prevQueue
+                (shortestPrevDuration, shortestQueue) = PQueue.findMin adjustedQueue
+                !deletedMin = PQueue.deleteMin adjustedQueue
+                !addedBack = PQueue.insert (shortestPrevDuration + _jobDuration job) shortestQueue deletedMin
             Deli.writeChannel shortestQueue job
-            loop addedBack newTime
+            loop (PQueue.seqSpine addedBack addedBack) newTime
     now <- Deli.now
     loop workQueue now
 
@@ -78,7 +76,7 @@ loadBalancerExample :: IO ()
 loadBalancerExample = do
     simulationGen <- newStdGen
     inputGen <- newPureMT
-    -- Generate a poisson process of arrivals, with a mean of 31,000 arrivals
+    -- Generate a poisson process of arrivals, with a mean of 650 arrivals
     -- per second
     let arrivals = Deli.Random.arrivalTimePoissonDistribution 31000
     -- Generate a Pareto distribution of service times, with a mean service
