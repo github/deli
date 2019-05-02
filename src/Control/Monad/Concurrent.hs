@@ -449,6 +449,7 @@ iwriteChannel chan@(Channel _ident mMaxSize) item = do
         Just ((readerId, nextReader), newReaders) -> do
             channels . ix chan . readers .= newReaders
             local (const readerId) nextReader
+    register (ischeduleDuration 0 myId)
 
 writeChannelNonblocking
     :: Monad m
