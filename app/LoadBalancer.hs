@@ -1,17 +1,17 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
-import Control.DeepSeq
-import Debug.Trace (traceM)
 import Control.Monad (replicateM, forM_, forever)
+import Control.Monad.Loops (iterateM_)
 import Control.Monad.Random.Class (getRandomR)
 import Data.Coerce (coerce)
 import Data.Random.Source.PureMT (newPureMT)
-import qualified Data.PQueue.Prio.Min as PQueue
 import Deli (Channel, Deli, JobTiming(..))
 import Deli.Printer (printResults)
 import System.Random
+import qualified Data.PQueue.Min as PQueue
 import qualified Deli
 import qualified Deli.Random
 
@@ -50,43 +50,68 @@ randomWorkers num jobChannel = do
         job <- Deli.readChannel jobChannel
         Deli.writeChannel workerQueue job
 
+data PriorityChannel = PriorityChannel
+    { _pduration :: !Deli.Duration
+    , _pchannel :: !(Deli.Channel JobTiming)
+    } deriving (Eq, Ord, Show)
+
+lwlDispatcher
+    :: Deli.Channel JobTiming
+    -> PQueue.MinQueue PriorityChannel
+    -> Deli JobTiming ()
+lwlDispatcher !readChan !queue = do
+    now <- Deli.now
+    iterateM_ (dispatch readChan) (queue, now)
+
+dispatch
+    :: Deli.Channel JobTiming
+    -> (PQueue.MinQueue PriorityChannel, Deli.Time)
+    -> Deli JobTiming (PQueue.MinQueue PriorityChannel, Deli.Time)
+dispatch readChan !(queue, prevTime) = do
+    job <- Deli.readChannel readChan
+    newTime <- Deli.now
+
+    durationMultiplier <- fromRational . toRational <$> getRandomR (0.5, 1.5 :: Float)
+
+
+    let mFun lastTime nowTime (PriorityChannel d c) =
+            PriorityChannel (max 0 (d - coerce (nowTime - lastTime))) c
+        !adjustedQueue = PQueue.map (mFun prevTime newTime) queue
+        (PriorityChannel shortestPrevDuration shortestQueue, deletedMin) = PQueue.deleteFindMin adjustedQueue
+
+        approxJobDuration = durationMultiplier * _jobDuration job
+        newPriorityChannel = PriorityChannel (shortestPrevDuration + approxJobDuration) shortestQueue
+        !addedBack = PQueue.insert newPriorityChannel deletedMin
+
+    Deli.writeChannel shortestQueue job
+    return (addedBack, newTime)
+
 leastWorkLeft
     :: Int
     -> Channel JobTiming
     -> Deli JobTiming ()
 leastWorkLeft num jobChannel = do
     chans :: [Channel JobTiming] <- replicateM num createWorker
-    let workQueue :: PQueue.MinPQueue Deli.Duration (Deli.Channel JobTiming)
-        workQueue = PQueue.fromList [(0 :: Deli.Duration, c) | c <- chans]
-        mFun lastTime nowTime k = max 0 (k - coerce (nowTime - lastTime))
-        loop :: PQueue.MinPQueue Deli.Duration (Deli.Channel JobTiming) -> Deli.Time -> Deli JobTiming ()
-        loop prevQueue prevTime = do
-            job <- Deli.readChannel jobChannel
-            newTime <- Deli.now
-            let !adjustedQueue = PQueue.mapKeysMonotonic (mFun prevTime newTime) prevQueue
-                (shortestPrevDuration, shortestQueue) = PQueue.findMin adjustedQueue
-                !deletedMin = PQueue.deleteMin adjustedQueue
-                !addedBack = PQueue.insert (shortestPrevDuration + _jobDuration job) shortestQueue deletedMin
-            Deli.writeChannel shortestQueue job
-            loop (PQueue.seqSpine addedBack addedBack) newTime
-    now <- Deli.now
-    loop workQueue now
+    let workQueue :: PQueue.MinQueue PriorityChannel
+        startingTimes = take num [0.00001, 0.00002..]
+        queueList = [PriorityChannel d c | (d, c)  <- zip startingTimes chans]
+        workQueue = PQueue.fromAscList queueList
+    lwlDispatcher jobChannel workQueue
 
 loadBalancerExample :: IO ()
 loadBalancerExample = do
     simulationGen <- newStdGen
     inputGen <- newPureMT
-    -- Generate a poisson process of arrivals, with a mean of 650 arrivals
+    -- Generate a poisson process of arrivals, with a mean of 50000 arrivals
     -- per second
-    let arrivals = Deli.Random.arrivalTimePoissonDistribution 31000
-    -- Generate a Pareto distribution of service times, with a mean service
-    -- time of 3 milliseconds (0.03 seconds) (alpha is set to 1.16 inside this
-    -- function)
-        serviceTimes = Deli.Random.durationParetoDistribution 0.5
-        jobs = take 20000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
-        roundRobinRes = Deli.simulate simulationGen jobs (roundRobinWorkers (1018 * 8))
-        randomRes = Deli.simulate simulationGen jobs (randomWorkers (1018 * 8))
-        leastWorkLeftRes = Deli.simulate simulationGen jobs (leastWorkLeft (1018 * 8))
+    let arrivals = Deli.Random.arrivalTimePoissonDistribution 1000
+        serviceTimes = Deli.Random.durationExponentialDistribution 0.025
+        jobsA = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsB = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsC = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        roundRobinRes = Deli.simulate simulationGen jobsA (roundRobinWorkers 32)
+        randomRes = Deli.simulate simulationGen jobsB (randomWorkers 32)
+        leastWorkLeftRes = Deli.simulate simulationGen jobsC (leastWorkLeft 32)
 
     putStrLn "## Round Robin ##"
     printResults roundRobinRes

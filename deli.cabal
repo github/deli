@@ -14,18 +14,23 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
+  if flag(dump-core)
+    build-depends: dump-core
+    ghc-options: -fplugin=DumpCore -fplugin-opt DumpCore:core-html
   hs-source-dirs:      src
   exposed-modules:     Control.Monad.Concurrent
                      , Deli
                      , Deli.Printer
                      , Deli.Random
-  build-depends:       base >= 4.7 && < 5
+  build-depends:       base
                      , MonadRandom
                      , bytestring
                      , containers
                      , dlist
                      , lens
+                     , monad-loops
                      , mtl
+                     , mtl-c
                      , pqueue
                      , random
                      , random-fu
@@ -33,8 +38,9 @@ library
                      , tdigest
                      , time
                      , transformers
+                     , strict
   default-language:    Haskell2010
-  ghc-options: -Wall
+  ghc-options: -Wall -O2
 
 executable tutorial
   hs-source-dirs:      app
@@ -62,7 +68,7 @@ executable performance
   build-depends:       base
                      , deli
                      , random
-  ghc-options:         -rtsopts
+  ghc-options:         -rtsopts -O2
   default-language:    Haskell2010
 
 executable load-balancer
@@ -86,7 +92,7 @@ executable load-balancer
                      , tdigest
                      , time
   default-language:    Haskell2010
-  ghc-options:         -O1
+  ghc-options:         -Wall -O2
 
 
 source-repository head
