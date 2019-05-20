@@ -10,7 +10,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
-import Test.QuickCheck (Arbitrary(..), Property, (===))
+import Test.QuickCheck (Arbitrary(..), Property, Positive(..), (===))
 
 main
     :: IO ()
@@ -33,12 +33,15 @@ concurrentUnitTests =
         , simpleWriterReader 10
         , simpleWriterReader 100
         , simpleWriterReader 1000
+
+        , negativeDurationSleep
         ]
 
 concurrentQuickCheckTests
     :: TestTree
 concurrentQuickCheckTests =
-    testProperty "propWriterReader" propWriterReader
+    localOption (QuickCheckTests 100000) $
+        testProperty "propWriterReader" propWriterReader
 
 -- Set up an unbuffered channel, with a forked reader. In the main thread,
 -- write `totalCount` values. The reader reads in an infinite loop. Using
@@ -63,15 +66,26 @@ simpleWriterReader totalCount =
             count = execState concurrentRes (0 :: Int)
         count @?= totalCount
 
+negativeDurationSleep
+    :: TestTree
+negativeDurationSleep =
+    testCase "Negative duration sleep" $ do
+        let inc = modify' (+ 1)
+            concurrentRes = C.runConcurrentT $ do
+                C.sleep (-1)
+                inc
+            count = execState concurrentRes (0 :: Int)
+        count @?= 1
+
 -- This is an orphan instance, hence the pragma at the top to suppress warnings
 instance Arbitrary C.Duration where
     arbitrary = fromRational <$> arbitrary
 
 propWriterReader
-    :: Int
+    :: Positive Int
     -> [C.Duration]
     -> Property
-propWriterReader numReaders messages =
+propWriterReader (Positive numReaders) messages =
     let concurrentRes = C.runConcurrentT (concurrentAction numReaders messages)
         count = execState concurrentRes 0
     in
