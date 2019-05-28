@@ -71,7 +71,7 @@ dispatch readChan !(queue, prevTime) = do
     job <- Deli.readChannel readChan
     newTime <- Deli.now
 
-    durationMultiplier <- fromRational . toRational <$> getRandomR (0.5, 1.5 :: Float)
+    durationMultiplier <- fromRational . toRational <$> getRandomR (0.7, 1.3 :: Float)
 
 
     let mFun lastTime nowTime (PriorityChannel d c) =
@@ -102,16 +102,15 @@ loadBalancerExample :: IO ()
 loadBalancerExample = do
     simulationGen <- newStdGen
     inputGen <- newPureMT
-    -- Generate a poisson process of arrivals, with a mean of 50000 arrivals
-    -- per second
-    let arrivals = Deli.Random.arrivalTimePoissonDistribution 1000
+    let arrivals = Deli.Random.arrivalTimePoissonDistribution 1500
         serviceTimes = Deli.Random.durationExponentialDistribution 0.025
-        jobsA = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
-        jobsB = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
-        jobsC = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
-        roundRobinRes = Deli.simulate simulationGen jobsA (roundRobinWorkers 32)
-        randomRes = Deli.simulate simulationGen jobsB (randomWorkers 32)
-        leastWorkLeftRes = Deli.simulate simulationGen jobsC (leastWorkLeft 32)
+        numTests = 1000 * 1000 * 2
+        jobsA = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsB = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsC = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        roundRobinRes = Deli.simulate simulationGen jobsA (roundRobinWorkers 48)
+        randomRes = Deli.simulate simulationGen jobsB (randomWorkers 48)
+        leastWorkLeftRes = Deli.simulate simulationGen jobsC (leastWorkLeft 48)
 
     putStrLn "## Round Robin ##"
     printResults roundRobinRes
