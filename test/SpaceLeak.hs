@@ -42,7 +42,7 @@ simulation = do
         inputGen = pureMT 908147245
         arrivals = Deli.Random.arrivalTimePoissonDistribution 100
         serviceTimes = Deli.Random.durationParetoDistribution 0.08
-        jobs = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobs = take 1000000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         res = Deli.simulate gen jobs (variableWorkers 10 10)
     printResults res
 

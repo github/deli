@@ -36,8 +36,6 @@ module Control.Monad.Concurrent
 import Control.Lens (at, ix, makeLenses, to, use, (^?), (.=), (+=), (%=), (?~))
 import Control.Monad (void, join, unless)
 import Control.Monad.State.CPS (StateT, evalStateT)
---import Control.Monad.State.Lazy (StateT, evalStateT)
---import Control.Monad.State.Strict (StateT, evalStateT)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, local, runReaderT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Trans.Cont (ContT, evalContT, resetT, shiftT)
