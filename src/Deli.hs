@@ -3,6 +3,8 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE Strict #-}
+
 
 module Deli
     ( Deli
@@ -40,7 +42,7 @@ module Deli
 
 import Control.Lens (Getter, makeLenses, to, use, (%~), (+~), (.~), (^.))
 import Control.Monad.Random.Strict
-import Control.Monad.State.Strict (State, execState, modify')
+import Control.Monad.State.CPS (State, execState, modify')
 import Data.Function ((&))
 import Data.Map.Strict
 import Data.Maybe (fromJust)
