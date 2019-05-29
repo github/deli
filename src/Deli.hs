@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE Strict #-}
 
 
 module Deli
@@ -46,7 +45,6 @@ import Control.Monad.State.CPS (State, execState, modify')
 import Data.Function ((&))
 import Data.Map.Strict
 import Data.Maybe (fromJust)
-import Data.Strict.Tuple (Pair((:!:)))
 import Data.TDigest (TDigest, tdigest, quantile)
 import Data.Time
 import System.Random (StdGen)
@@ -206,9 +204,9 @@ runJob
     -> Deli chanState ()
 runJob j = do
     let (JobTiming start duration) = j ^. jobTiming
-    beforeJob <- Deli Concurrent.now
+    !beforeJob <- Deli Concurrent.now
     Deli (Concurrent.sleep duration)
-    nowTime <- Deli Concurrent.now
+    !nowTime <- Deli Concurrent.now
     let !sojourn = Concurrent.subtractTime nowTime start
         !waitTime = Concurrent.subtractTime beforeJob start
         modifier s = s & numProcessed +~ 1
@@ -272,6 +270,6 @@ simulate gen jobs process =
     runDeli gen $ do
         mainChan <- Deli (Concurrent.newChannel Nothing)
         let insertQueue = Concurrent.writeChannel mainChan
-            scheduled = [_jobStart (job ^. jobTiming) :!: insertQueue job | job <- jobs]
+            scheduled = [(_jobStart (job ^. jobTiming), insertQueue job) | job <- jobs]
         Deli (Concurrent.lazySchedule scheduled)
         process mainChan

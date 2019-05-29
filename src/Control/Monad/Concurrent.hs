@@ -164,7 +164,7 @@ type CoroutineQueue chanState m = MinQueue (PriorityCoroutine chanState m)
 
 data ConcurrentState chanState m = ConcurrentState
     { _coroutines :: !(CoroutineQueue chanState m)
-    , _scheduledRoutines :: [(Pair Time (IConcurrentT chanState m ()))]
+    , _scheduledRoutines :: [(Time, IConcurrentT chanState m ())]
     , _nextThreadIdent :: !ThreadId
     , _channels :: !(Map (Channel chanState) (ChanAndWaiters chanState m))
     , _nextChannelIdent :: !Integer
@@ -265,11 +265,11 @@ dequeue = do
             putCCs modifiedQueue
             updateNow priority
             local (const pId) nextCoroutine
-        (Nothing, (priority :!: nextCoroutine): tl) -> do
+        (Nothing, (priority, nextCoroutine): tl) -> do
             scheduledRoutines .= tl
             updateNow priority
             nextCoroutine
-        (Just (PriorityCoroutine nextCoroutineQ pId priorityQ, modifiedQueue), (priorityL :!: nextCoroutineL): tl) ->
+        (Just (PriorityCoroutine nextCoroutineQ pId priorityQ, modifiedQueue), (priorityL, nextCoroutineL): tl) ->
             if priorityL <= priorityQ
             then do
                 scheduledRoutines .= tl
@@ -319,14 +319,14 @@ iyield =
 
 lazySchedule
     :: Monad m
-    => [Pair Time (ConcurrentT chanState m ())]
+    => [(Time, ConcurrentT chanState m ())]
     -> ConcurrentT chanState m ()
 lazySchedule scheduled =
-    ConcurrentT (ilazySchedule [time :!: runConcurrentT' t | time :!: t <- scheduled])
+    ConcurrentT (ilazySchedule [(time, runConcurrentT' t) | (time, t) <- scheduled])
 
 ilazySchedule
     :: Monad m
-    => [Pair Time (IConcurrentT chanState m ())]
+    => [(Time, IConcurrentT chanState m ())]
     -> IConcurrentT chanState m ()
 ilazySchedule scheduled =
     scheduledRoutines .= scheduled

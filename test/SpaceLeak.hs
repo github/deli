@@ -35,14 +35,6 @@ variableWorkers outerNum innerNum queue =
      replicateM_ outerNum $
         Deli.fork $ (outerWorker innerNum queue)
 
-simpleWorkers
-    :: Int
-    -> Channel JobTiming
-    -> Deli JobTiming ()
-simpleWorkers numWorkers queue =
-    replicateM_ numWorkers $
-        Deli.fork $ forever $ Deli.readChannel queue >>= Deli.runJob
-
 simulation
     :: IO ()
 simulation = do
@@ -50,7 +42,7 @@ simulation = do
         inputGen = pureMT 908147245
         arrivals = Deli.Random.arrivalTimePoissonDistribution 100
         serviceTimes = Deli.Random.durationParetoDistribution 0.08
-        jobs = take 100000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobs = take 40000 $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         res = Deli.simulate gen jobs (variableWorkers 10 10)
     printResults res
 
