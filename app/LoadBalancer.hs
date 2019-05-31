@@ -104,7 +104,7 @@ loadBalancerExample = do
     inputGen <- newPureMT
     let arrivals = Deli.Random.arrivalTimePoissonDistribution 1500
         serviceTimes = Deli.Random.durationExponentialDistribution 0.025
-        numTests = 1000 * 1000 * 2
+        numTests = 1000 * 1000 * 10
         jobsA = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         jobsB = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         jobsC = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
@@ -114,8 +114,10 @@ loadBalancerExample = do
 
     putStrLn "## Round Robin ##"
     printResults roundRobinRes
+    newline
     putStrLn "## Random ##"
     printResults randomRes
+    newline
     putStrLn "## LeastWorkLeft ##"
     printResults leastWorkLeftRes
     newline
