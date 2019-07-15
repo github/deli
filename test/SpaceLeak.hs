@@ -33,7 +33,7 @@ variableWorkers
     -> Deli JobTiming ()
 variableWorkers outerNum innerNum queue =
      replicateM_ outerNum $
-        Deli.fork $ (outerWorker innerNum queue)
+        Deli.fork $ outerWorker innerNum queue
 
 simulation
     :: IO ()
