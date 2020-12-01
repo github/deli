@@ -27,7 +27,6 @@ library
                      , lens
                      , monad-loops
                      , mtl
-                     , mtl-c
                      , pqueue
                      , random
                      , random-fu

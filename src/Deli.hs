@@ -42,8 +42,6 @@ module Deli
 import Control.Lens (Getter, makeLenses, to, use, (%~), (+~), (.~), (^.))
 import Control.Monad.Random.Strict (MonadRandom(..), RandT, evalRandT)
 import Control.Monad.State.CPS (State, execState)
---import Control.Monad.State.Lazy (State, execState, modify')
---import Control.Monad.State.Strict (State, execState, modify')
 import Control.Monad.State.Class (modify')
 import Control.Monad.Trans.Class (lift)
 import Data.Function ((&))
