@@ -32,6 +32,7 @@ module Deli
     , writeChannelNonblocking
     , readChannel
     , readChannelNonblocking
+    , channelLength
     , runDeli
     , runJob
     , priority
@@ -169,6 +170,11 @@ readChannelNonblocking
     :: Concurrent.Channel chanState
     -> Deli chanState (Maybe chanState)
 readChannelNonblocking = Deli . Concurrent.readChannelNonblocking
+
+channelLength
+    :: Concurrent.Channel chanState
+    -> Deli chanState Int
+channelLength = Deli . Concurrent.channelLength
 
 ------------------------------------------------------------------------------
 -- ## Time Conversion

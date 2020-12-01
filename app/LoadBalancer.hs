@@ -7,6 +7,8 @@ import Control.Monad (replicateM, forM_, forever)
 import Control.Monad.Loops (iterateM_)
 import Control.Monad.Random.Class (getRandomR)
 import Data.Coerce (coerce)
+import Data.List (elemIndex, foldl1')
+import Data.Maybe (fromMaybe)
 import Data.Random.Source.PureMT (newPureMT)
 import Deli (Channel, Deli, JobTiming(..))
 import Deli.Printer (printResults)
@@ -50,6 +52,39 @@ randomWorkers num jobChannel = do
         job <- Deli.readChannel jobChannel
         Deli.writeChannel workerQueue job
 
+leastConn
+    :: Int
+    -> Channel JobTiming
+    -> Deli JobTiming ()
+leastConn num jobChannel = do
+    chans :: [Channel JobTiming] <- replicateM num createWorker
+    forever $ do
+        job <- Deli.readChannel jobChannel
+
+        conns <- mapM Deli.channelLength chans
+        let minIndex = fromMaybe 0 $ elemIndex (foldl1' min conns) conns
+
+        Deli.writeChannel (chans !! minIndex) job
+
+twoRandomChoices
+    :: Int
+    -> Channel JobTiming
+    -> Deli JobTiming ()
+twoRandomChoices num jobChannel = do
+    chans :: [Channel JobTiming] <- replicateM num createWorker
+    forever $ do
+        job <- Deli.readChannel jobChannel
+
+        randomWorkerIndexA <- getRandomR (0, length chans - 1)
+        randomWorkerIndexB <- getRandomR (0, length chans - 1)
+
+        aLength <- Deli.channelLength (chans !! randomWorkerIndexA)
+        bLength <- Deli.channelLength (chans !! randomWorkerIndexB)
+
+        if aLength < bLength
+        then Deli.writeChannel (chans !! randomWorkerIndexA) job
+        else Deli.writeChannel (chans !! randomWorkerIndexB) job
+
 data PriorityChannel = PriorityChannel
     { _pduration :: !Deli.Duration
     , _pchannel :: !(Deli.Channel JobTiming)
@@ -67,7 +102,7 @@ dispatch
     :: Deli.Channel JobTiming
     -> (PQueue.MinQueue PriorityChannel, Deli.Time)
     -> Deli JobTiming (PQueue.MinQueue PriorityChannel, Deli.Time)
-dispatch readChan !(queue, prevTime) = do
+dispatch readChan (queue, prevTime) = do
     job <- Deli.readChannel readChan
     newTime <- Deli.now
 
@@ -104,13 +139,17 @@ loadBalancerExample = do
     inputGen <- newPureMT
     let arrivals = Deli.Random.arrivalTimePoissonDistribution 1500
         serviceTimes = Deli.Random.durationExponentialDistribution 0.025
-        numTests = 1000 * 1000 * 10
+        numTests = 1000 * 1000 * 1
         jobsA = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         jobsB = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         jobsC = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsD = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
+        jobsE = take numTests $ Deli.Random.distributionToJobs arrivals serviceTimes inputGen
         roundRobinRes = Deli.simulate simulationGen jobsA (roundRobinWorkers 48)
         randomRes = Deli.simulate simulationGen jobsB (randomWorkers 48)
         leastWorkLeftRes = Deli.simulate simulationGen jobsC (leastWorkLeft 48)
+        twoRandomChoicesRes = Deli.simulate simulationGen jobsD (twoRandomChoices 48)
+        leastConnRes = Deli.simulate simulationGen jobsE (leastConn 48)
 
     putStrLn "## Round Robin ##"
     printResults roundRobinRes
@@ -120,6 +159,12 @@ loadBalancerExample = do
     newline
     putStrLn "## LeastWorkLeft ##"
     printResults leastWorkLeftRes
+    newline
+    putStrLn "## TwoRandomChoices ##"
+    printResults twoRandomChoicesRes
+    newline
+    putStrLn "## LeastConn ##"
+    printResults leastConnRes
     newline
 
     where newline = putStrLn "\n"

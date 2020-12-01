@@ -30,6 +30,7 @@ module Control.Monad.Concurrent
     , writeChannelNonblocking
     , readChannel
     , readChannelNonblocking
+    , channelLength
     , runConcurrentT
     ) where
 
@@ -566,6 +567,21 @@ ireadChannelNonblocking chan = do
                     channels . ix chan . writers .= newWriters
                     IConcurrentT (resetT (runIConcurrentT' (local (const writerId) nextWriter)))
             return (Just val)
+
+channelLength
+    :: Monad m
+    => Channel chanState
+    -> ConcurrentT chanState m Int
+channelLength = ConcurrentT . iChannelLength
+
+iChannelLength
+    :: Monad m
+    => Channel chanState
+    -> IConcurrentT chanState m Int
+iChannelLength chan = do
+    chanMap <- use channels
+    let chanContents = fromMaybe Data.Sequence.empty $ chanMap ^? (ix chan . contents)
+    return (Data.Sequence.length chanContents)
 
 runConcurrentT
     :: Monad m

@@ -14,9 +14,6 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  if flag(dump-core)
-    build-depends: dump-core
-    ghc-options: -fplugin=DumpCore -fplugin-opt DumpCore:core-html
   hs-source-dirs:      src
   exposed-modules:     Control.Monad.Concurrent
                      , Deli
