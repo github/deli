@@ -6,7 +6,7 @@ Deli is a performance modeling tool, allowing you to understand and experiment
 with new designs at several orders of magnitude faster than wall-clock time.
 Specifically, Deli is designed to help you understand how long it takes for
 'jobs' or 'requests' to complete in your system. Deli borrows concepts and
-terminology from [queueing
+terminology from [queuing
 theory](https://en.wikipedia.org/wiki/Queueing_theory), and is implemented as a
 Haskell DSL, exposing a [Go (language)](https://golang.org/) -like concurrency
 and message-passing API.
@@ -31,4 +31,4 @@ documentation](docs/contributing.md).
 
 ## License
 
-Deli is BSD3 licensed. More information is availabile in [LICENSE](LICENSE).
+Deli is BSD3 licensed. More information is available in [LICENSE](LICENSE).
