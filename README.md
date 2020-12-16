@@ -31,4 +31,4 @@ documentation](docs/contributing.md).
 
 ## License
 
-Deli is BSD3 licensed. More information is availabile in [LICENSE](LICENSE).
+Deli is BSD3 licensed. More information is available in [LICENSE](LICENSE).
