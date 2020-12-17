@@ -19,12 +19,13 @@ library
                      , Deli
                      , Deli.Printer
                      , Deli.Random
-  build-depends:       base >= 4.7 && < 5
+  build-depends:       base
                      , MonadRandom
                      , bytestring
                      , containers
                      , dlist
                      , lens
+                     , monad-loops
                      , mtl
                      , pqueue
                      , random
@@ -33,8 +34,9 @@ library
                      , tdigest
                      , time
                      , transformers
+                     , strict
   default-language:    Haskell2010
-  ghc-options: -Wall
+  ghc-options: -Wall -O2
 
 executable tutorial
   hs-source-dirs:      app
@@ -56,14 +58,38 @@ executable tutorial
   default-language:    Haskell2010
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -O1
 
-test-suite deli-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Spec.hs
+executable performance
+  hs-source-dirs:      app
+  main-is:             Performance.hs
   build-depends:       base
                      , deli
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+                     , random
+  ghc-options:         -rtsopts -O2
   default-language:    Haskell2010
+
+executable load-balancer
+  hs-source-dirs:      app
+  main-is:             LoadBalancer.hs
+  ghc-options:         -O1
+  build-depends:       base
+                     , MonadRandom
+                     , bytestring
+                     , containers
+                     , deli
+                     , deepseq
+                     , lens
+                     , monad-loops
+                     , mtl
+                     , parallel
+                     , pqueue
+                     , random
+                     , random-fu
+                     , random-source
+                     , tdigest
+                     , time
+  default-language:    Haskell2010
+  ghc-options:         -Wall -O2
+
 
 source-repository head
   type:     git

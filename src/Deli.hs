@@ -32,6 +32,7 @@ module Deli
     , writeChannelNonblocking
     , readChannel
     , readChannelNonblocking
+    , channelLength
     , runDeli
     , runJob
     , priority
@@ -39,8 +40,10 @@ module Deli
     ) where
 
 import Control.Lens (Getter, makeLenses, to, use, (%~), (+~), (.~), (^.))
-import Control.Monad.Random.Strict
-import Control.Monad.State.Strict (State, execState, modify')
+import Control.Monad.Random.Strict (MonadRandom(..), RandT, evalRandT)
+import Control.Monad.State.CPS (State, execState)
+import Control.Monad.State.Class (modify')
+import Control.Monad.Trans.Class (lift)
 import Data.Function ((&))
 import Data.Map.Strict
 import Data.Maybe (fromJust)
@@ -165,6 +168,11 @@ readChannelNonblocking
     :: Concurrent.Channel chanState
     -> Deli chanState (Maybe chanState)
 readChannelNonblocking = Deli . Concurrent.readChannelNonblocking
+
+channelLength
+    :: Concurrent.Channel chanState
+    -> Deli chanState Int
+channelLength = Deli . Concurrent.channelLength
 
 ------------------------------------------------------------------------------
 -- ## Time Conversion
